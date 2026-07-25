@@ -1,0 +1,101 @@
+/* React Flow base styles — @import must precede @tailwind (CSS spec). */
+@import '@xyflow/react/dist/style.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+:root.dark {
+  color-scheme: dark;
+}
+
+* {
+  border-color: var(--border);
+}
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Small reusable primitives (kept tiny; most styling is Tailwind utilities) */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  height: 36px;
+  padding: 0 0.85rem;
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  font-weight: 500;
+  border: 1px solid var(--border);
+  background: var(--surface-muted);
+  color: var(--fg);
+  cursor: pointer;
+  transition: opacity 120ms ease;
+}
+.btn:hover {
+  opacity: 0.88;
+}
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.btn-primary {
+  background: var(--primary);
+  color: var(--primary-fg);
+  border-color: transparent;
+}
+.btn-sm {
+  height: 30px;
+  padding: 0 0.6rem;
+  font-size: 12px;
+}
+.input,
+.select,
+.textarea {
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--fg);
+  font: inherit;
+  padding: 0.45rem 0.6rem;
+  font-size: 13px;
+}
+.textarea {
+  min-height: 80px;
+  resize: vertical;
+}
+
+/* Canvas node styling (custom React Flow node) */
+.fc-node {
+  background: var(--surface);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  width: 190px;
+  font-size: 12px;
+  overflow: hidden;
+}
+.fc-node.selected {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 35%, transparent);
+}
+.fc-node__head {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.55rem;
+  font-weight: 600;
+  color: #fff;
+}
+.fc-node__body {
+  padding: 0.45rem 0.55rem;
+  color: var(--muted);
+}

@@ -1,0 +1,26 @@
+# Local infra for Flowcraft. Just Postgres — Inngest runs via its own dev server
+# (`npx inngest-cli dev`, or `pnpm inngest`), which needs no container.
+#
+# Host port 5435 avoids clashing with other local Postgres instances
+# (5432 plotly, 5433 flowtrigger, 5434 sentinel).
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: flowcraft-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: flowcraft
+      POSTGRES_PASSWORD: flowcraft
+      POSTGRES_DB: flowcraft
+    ports:
+      - '5435:5432'
+    volumes:
+      - flowcraft-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U flowcraft']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  flowcraft-pgdata:

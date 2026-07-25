@@ -1,0 +1,71 @@
+// Flowcraft data model (spec §3). snake_case columns via @map; Prisma Client
+// stays camelCase. The React Flow graph lives verbatim in workflows.graph (jsonb).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Workflow {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String
+  graph     Json     @default("{\"nodes\":[],\"edges\":[]}")
+  status    String   @default("draft") // 'draft' | 'active' | 'paused'
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  runs WorkflowRun[]
+
+  @@map("workflows")
+}
+
+model WorkflowRun {
+  id           String    @id @default(uuid()) @db.Uuid
+  workflowId   String    @map("workflow_id") @db.Uuid
+  inngestRunId String?   @map("inngest_run_id")
+  status       String    @default("running") // 'running' | 'completed' | 'failed'
+  triggeredBy  String    @map("triggered_by") // 'manual' | 'webhook' | 'schedule'
+  startedAt    DateTime  @default(now()) @map("started_at") @db.Timestamptz(6)
+  completedAt  DateTime? @map("completed_at") @db.Timestamptz(6)
+
+  workflow Workflow  @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  steps    RunStep[]
+
+  @@index([workflowId])
+  @@index([startedAt])
+  @@map("workflow_runs")
+}
+
+model RunStep {
+  id          String    @id @default(uuid()) @db.Uuid
+  runId       String    @map("run_id") @db.Uuid
+  nodeId      String    @map("node_id") // React Flow node id
+  stepType    String    @map("step_type") // 'trigger' | 'action' | 'condition' | 'delay'
+  status      String    @default("pending") // 'pending' | 'succeeded' | 'failed' | 'skipped'
+  input       Json      @default("{}")
+  output      Json?
+  error       String?
+  attempts    Int       @default(0)
+  startedAt   DateTime  @default(now()) @map("started_at") @db.Timestamptz(6)
+  completedAt DateTime? @map("completed_at") @db.Timestamptz(6)
+
+  run WorkflowRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  // One row per node per run — upserted so retries increment `attempts` in place.
+  @@unique([runId, nodeId])
+  @@index([runId])
+  @@map("run_steps")
+}
+
+model NodeTemplate {
+  id           String @id @default(uuid()) @db.Uuid
+  type         String @unique
+  label        String
+  configSchema Json   @map("config_schema")
+
+  @@map("node_templates")
+}
