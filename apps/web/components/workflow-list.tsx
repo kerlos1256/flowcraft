@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import type { WorkflowSummaryDto } from '@flowcraft/shared-types';
 import { createWorkflow, deleteWorkflow, isUpgradeError } from '@/lib/api';
+import { Modal } from '@/components/ui/modal';
 
 const statusColor: Record<string, string> = {
   draft: 'var(--muted)',
@@ -15,33 +16,54 @@ const statusColor: Record<string, string> = {
 export function WorkflowList({ initial }: { initial: WorkflowSummaryDto[] }) {
   const router = useRouter();
   const [items, setItems] = useState(initial);
-  const [busy, setBusy] = useState(false);
   const [limit, setLimit] = useState<string | null>(null);
 
-  async function create() {
-    const name = prompt('Workflow name?', 'My workflow');
-    if (!name) return;
-    setBusy(true);
+  // Create-workflow modal state
+  const [createOpen, setCreateOpen] = useState(false);
+  const [name, setName] = useState('');
+  const [creating, setCreating] = useState(false);
+
+  // Delete-confirm modal state
+  const [toDelete, setToDelete] = useState<WorkflowSummaryDto | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  function openCreate() {
+    setName('My workflow');
+    setLimit(null);
+    setCreateOpen(true);
+  }
+
+  async function submitCreate() {
+    const trimmed = name.trim();
+    if (!trimmed || creating) return;
+    setCreating(true);
     setLimit(null);
     try {
-      const wf = await createWorkflow(name);
+      const wf = await createWorkflow(trimmed);
       router.push(`/workflows/${wf.id}`);
     } catch (e) {
+      setCreateOpen(false);
       if (isUpgradeError(e)) setLimit(e.message);
-      setBusy(false);
+      setCreating(false);
     }
   }
 
-  async function remove(id: string) {
-    if (!confirm('Delete this workflow and its run history?')) return;
-    await deleteWorkflow(id);
-    setItems((xs) => xs.filter((x) => x.id !== id));
+  async function confirmDelete() {
+    if (!toDelete || deleting) return;
+    setDeleting(true);
+    try {
+      await deleteWorkflow(toDelete.id);
+      setItems((xs) => xs.filter((x) => x.id !== toDelete.id));
+      setToDelete(null);
+    } finally {
+      setDeleting(false);
+    }
   }
 
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-col gap-2">
-        <button className="btn btn-primary self-start" onClick={create} disabled={busy}>
+        <button className="btn btn-primary self-start" onClick={openCreate}>
           + New workflow
         </button>
         {limit && (
@@ -81,7 +103,7 @@ export function WorkflowList({ initial }: { initial: WorkflowSummaryDto[] }) {
                 <Link href={`/workflows/${w.id}`} className="btn btn-sm">
                   Open editor
                 </Link>
-                <button className="btn btn-sm" onClick={() => remove(w.id)}>
+                <button className="btn btn-sm" onClick={() => setToDelete(w)}>
                   Delete
                 </button>
               </div>
@@ -89,6 +111,77 @@ export function WorkflowList({ initial }: { initial: WorkflowSummaryDto[] }) {
           ))}
         </div>
       )}
+
+      {/* Create-workflow modal */}
+      <Modal
+        open={createOpen}
+        onClose={() => !creating && setCreateOpen(false)}
+        title="New workflow"
+        description="Give it a name — you can rename it anytime."
+      >
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            void submitCreate();
+          }}
+          className="flex flex-col gap-4"
+        >
+          <input
+            autoFocus
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onFocus={(e) => e.target.select()}
+            placeholder="e.g. Slack digest"
+            className="w-full rounded-md border border-border bg-surface px-3 py-2.5 text-sm outline-none focus:border-primary"
+          />
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setCreateOpen(false)}
+              disabled={creating}
+              className="rounded-md border border-border px-3.5 py-2 text-sm hover:bg-surface-muted disabled:opacity-60"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={creating || !name.trim()}
+              className="rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-60"
+            >
+              {creating ? 'Creating…' : 'Create workflow'}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Delete-confirm modal */}
+      <Modal
+        open={toDelete !== null}
+        onClose={() => !deleting && setToDelete(null)}
+        title="Delete workflow?"
+        description={
+          toDelete
+            ? `“${toDelete.name}” and its run history will be permanently deleted. This can’t be undone.`
+            : ''
+        }
+      >
+        <div className="flex justify-end gap-2">
+          <button
+            onClick={() => setToDelete(null)}
+            disabled={deleting}
+            className="rounded-md border border-border px-3.5 py-2 text-sm hover:bg-surface-muted disabled:opacity-60"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={confirmDelete}
+            disabled={deleting}
+            className="rounded-md bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-60"
+          >
+            {deleting ? 'Deleting…' : 'Delete'}
+          </button>
+        </div>
+      </Modal>
     </div>
   );
 }
