@@ -4,7 +4,7 @@ import { SESSION_COOKIE, verifySession } from '@/lib/jwt';
 // Protect the authenticated app pages. API routes enforce auth themselves (so
 // they can return 401 JSON + Inngest/webhook routes stay public). The landing,
 // login, and signup pages are public.
-const PROTECTED = ['/app', '/workflows', '/runs'];
+const PROTECTED = ['/app', '/workflows', '/runs', '/welcome'];
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
@@ -21,5 +21,5 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/app/:path*', '/workflows/:path*', '/runs/:path*'],
+  matcher: ['/app/:path*', '/workflows/:path*', '/runs/:path*', '/welcome'],
 };

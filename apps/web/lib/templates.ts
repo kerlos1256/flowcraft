@@ -162,5 +162,29 @@ export const TEMPLATE_BY_SLUG: Record<string, WorkflowTemplate> = Object.fromEnt
   WORKFLOW_TEMPLATES.map((t) => [t.slug, t]),
 );
 
-/** Templates seeded into a brand-new account so it isn't empty. */
-export const STARTER_TEMPLATE_SLUGS = ['flaky-api-check', 'webhook-alert-router', 'signup-welcome'];
+/**
+ * Onboarding: a single "what do you want to automate?" question. Each choice maps
+ * to the most relevant template, which we seed as the user's tailored starter.
+ * `null` = "just exploring" → start with an empty dashboard.
+ */
+export interface UseCase {
+  id: string;
+  label: string;
+  icon: string;
+  blurb: string;
+  templateSlug: string | null;
+}
+
+export const ONBOARDING_USE_CASES: UseCase[] = [
+  { id: 'monitoring', label: 'Monitor an API or service', icon: '🌐', blurb: 'Health checks with retries & alerts', templateSlug: 'flaky-api-check' },
+  { id: 'alerting', label: 'Route alerts & incidents', icon: '🚨', blurb: 'Branch on severity, page the right people', templateSlug: 'webhook-alert-router' },
+  { id: 'onboarding', label: 'Welcome new users', icon: '👋', blurb: 'Email + team notification on signup', templateSlug: 'signup-welcome' },
+  { id: 'escalation', label: 'On-call escalation', icon: '📟', blurb: 'Page, wait for ack, then escalate', templateSlug: 'escalation-policy' },
+  { id: 'notifications', label: 'Scheduled reminders', icon: '⏳', blurb: 'Durable delays then notify', templateSlug: 'delayed-followup' },
+  { id: 'integrations', label: 'Connect tools together', icon: '🔗', blurb: 'Enrich an event, post the result', templateSlug: 'enrich-and-notify' },
+  { id: 'explore', label: 'Just exploring', icon: '🧭', blurb: 'Start with a blank canvas', templateSlug: null },
+];
+
+export const USE_CASE_BY_ID: Record<string, UseCase> = Object.fromEntries(
+  ONBOARDING_USE_CASES.map((u) => [u.id, u]),
+);

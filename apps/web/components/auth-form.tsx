@@ -21,8 +21,12 @@ export function AuthForm({ mode }: { mode: 'login' | 'signup' }) {
     setBusy(true);
     setError(null);
     try {
-      if (isSignup) await signup(email, name, password);
-      else await login(email, password);
+      if (isSignup) {
+        await signup(email, name, password);
+        window.location.href = '/welcome'; // new users pick a use case first
+        return;
+      }
+      await login(email, password);
       const next = new URLSearchParams(window.location.search).get('next') || '/app';
       window.location.href = next; // full nav so the session cookie is applied
     } catch (err) {

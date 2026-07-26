@@ -15,7 +15,7 @@ import {
 } from '@flowcraft/shared-types';
 import { prisma } from './prisma';
 import { inngest } from './inngest/client';
-import { TEMPLATE_BY_SLUG, STARTER_TEMPLATE_SLUGS } from './templates';
+import { TEMPLATE_BY_SLUG } from './templates';
 import { assertCanCreateWorkflow, assertCanRun, assertCanSchedule } from './billing';
 
 // ── Users ────────────────────────────────────────────────────────────────────
@@ -32,20 +32,8 @@ export async function createUser(input: {
   const user = await prisma.user.create({
     data: { email: input.email.toLowerCase().trim(), name: input.name, passwordHash: input.passwordHash },
   });
-  await seedStarterTemplates(user.id);
+  // No auto-seed — new users pick a use case in onboarding and get a tailored starter.
   return { id: user.id, email: user.email, name: user.name };
-}
-
-/** Give a brand-new account a few ready-to-run workflows so it isn't empty. */
-export async function seedStarterTemplates(userId: string): Promise<void> {
-  for (const slug of STARTER_TEMPLATE_SLUGS) {
-    const tpl = TEMPLATE_BY_SLUG[slug];
-    if (tpl) {
-      await prisma.workflow.create({
-        data: { userId, name: tpl.name, graph: tpl.graph as object, status: 'draft' },
-      });
-    }
-  }
 }
 
 // ── Reads (scoped to the owner) ──────────────────────────────────────────────

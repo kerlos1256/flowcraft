@@ -48,6 +48,13 @@ export const listRuns = (workflowId?: string) =>
 export const useTemplate = (slug: string) =>
   req<WorkflowDto>('/workflows/from-template', { method: 'POST', body: JSON.stringify({ slug }) });
 
+/** Onboarding: seed a tailored starter for the chosen use case (or none). */
+export const submitOnboarding = (useCase: string) =>
+  req<{ workflowId: string | null }>('/onboarding', {
+    method: 'POST',
+    body: JSON.stringify({ useCase }),
+  });
+
 // ── Auth ──────────────────────────────────────────────────────────────────────
 interface AuthUser {
   id: string;
