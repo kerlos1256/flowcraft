@@ -35,6 +35,9 @@ export default async function LandingPage() {
             <span className="text-lg">{appConfig.logoGlyph}</span> {appConfig.name}
           </div>
           <div className="ml-auto flex items-center gap-2">
+            <Link href="/pricing" className="hidden px-3 py-1.5 text-sm text-muted hover:text-foreground sm:inline">
+              Pricing
+            </Link>
             <ThemeToggle />
             {session ? (
               <Link href="/app" className="rounded-md bg-primary px-3.5 py-1.5 text-sm font-semibold text-primary-foreground">

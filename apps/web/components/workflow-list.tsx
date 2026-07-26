@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import type { WorkflowSummaryDto } from '@flowcraft/shared-types';
-import { createWorkflow, deleteWorkflow } from '@/lib/api';
+import { createWorkflow, deleteWorkflow, isUpgradeError } from '@/lib/api';
 
 const statusColor: Record<string, string> = {
   draft: 'var(--muted)',
@@ -16,15 +16,18 @@ export function WorkflowList({ initial }: { initial: WorkflowSummaryDto[] }) {
   const router = useRouter();
   const [items, setItems] = useState(initial);
   const [busy, setBusy] = useState(false);
+  const [limit, setLimit] = useState<string | null>(null);
 
   async function create() {
     const name = prompt('Workflow name?', 'My workflow');
     if (!name) return;
     setBusy(true);
+    setLimit(null);
     try {
       const wf = await createWorkflow(name);
       router.push(`/workflows/${wf.id}`);
-    } finally {
+    } catch (e) {
+      if (isUpgradeError(e)) setLimit(e.message);
       setBusy(false);
     }
   }
@@ -37,10 +40,18 @@ export function WorkflowList({ initial }: { initial: WorkflowSummaryDto[] }) {
 
   return (
     <div className="flex flex-col gap-3">
-      <div>
-        <button className="btn btn-primary" onClick={create} disabled={busy}>
+      <div className="flex flex-col gap-2">
+        <button className="btn btn-primary self-start" onClick={create} disabled={busy}>
           + New workflow
         </button>
+        {limit && (
+          <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs">
+            {limit}{' '}
+            <Link href="/pricing" className="font-semibold underline">
+              See plans →
+            </Link>
+          </div>
+        )}
       </div>
 
       {items.length === 0 ? (

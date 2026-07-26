@@ -2,7 +2,8 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useTemplate } from '@/lib/api';
+import Link from 'next/link';
+import { useTemplate, isUpgradeError } from '@/lib/api';
 
 export interface TemplateMeta {
   slug: string;
@@ -16,19 +17,31 @@ export interface TemplateMeta {
 export function TemplateGallery({ templates }: { templates: TemplateMeta[] }) {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
+  const [limit, setLimit] = useState<string | null>(null);
 
   async function pick(slug: string) {
     setBusy(slug);
+    setLimit(null);
     try {
       const wf = await useTemplate(slug);
       router.push(`/workflows/${wf.id}`);
-    } catch {
+    } catch (e) {
+      if (isUpgradeError(e)) setLimit(e.message);
       setBusy(null);
     }
   }
 
   return (
-    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+    <div className="flex flex-col gap-3">
+      {limit && (
+        <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs">
+          {limit}{' '}
+          <Link href="/pricing" className="font-semibold underline">
+            See plans →
+          </Link>
+        </div>
+      )}
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
       {templates.map((t) => (
         <div
           key={t.slug}
@@ -57,6 +70,7 @@ export function TemplateGallery({ templates }: { templates: TemplateMeta[] }) {
           </button>
         </div>
       ))}
+      </div>
     </div>
   );
 }

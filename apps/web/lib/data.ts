@@ -16,6 +16,7 @@ import {
 import { prisma } from './prisma';
 import { inngest } from './inngest/client';
 import { TEMPLATE_BY_SLUG, STARTER_TEMPLATE_SLUGS } from './templates';
+import { assertCanCreateWorkflow, assertCanRun, assertCanSchedule } from './billing';
 
 // ── Users ────────────────────────────────────────────────────────────────────
 
@@ -97,6 +98,7 @@ export async function getRun(id: string, userId: string): Promise<RunDetailDto |
 // ── Writes (scoped to the owner) ─────────────────────────────────────────────
 
 export async function createWorkflow(userId: string, name: string): Promise<WorkflowDto> {
+  await assertCanCreateWorkflow(userId); // throws LimitError → 402
   const r = await prisma.workflow.create({
     data: { userId, name, graph: emptyGraph() as object, status: 'draft' },
   });
@@ -109,6 +111,7 @@ export async function createWorkflowFromTemplate(
 ): Promise<WorkflowDto | null> {
   const tpl = TEMPLATE_BY_SLUG[slug];
   if (!tpl) return null;
+  await assertCanCreateWorkflow(userId);
   const r = await prisma.workflow.create({
     data: { userId, name: tpl.name, graph: tpl.graph as object, status: 'draft' },
   });
@@ -122,6 +125,8 @@ export async function updateWorkflow(
 ): Promise<WorkflowDto | null> {
   const owned = await prisma.workflow.findFirst({ where: { id, userId }, select: { id: true } });
   if (!owned) return null;
+  // Activating a workflow enables its scheduled/cron trigger — gate on plan.
+  if (input.status === 'active') await assertCanSchedule(userId);
   const r = await prisma.workflow.update({
     where: { id },
     data: { name: input.name, graph: input.graph as object | undefined, status: input.status },
@@ -144,16 +149,18 @@ export async function runWorkflow(
 ): Promise<WorkflowRunDto | null> {
   const owned = await prisma.workflow.findFirst({ where: { id, userId }, select: { id: true } });
   if (!owned) return null;
+  await assertCanRun(userId); // throws LimitError → 402
   return dispatchRun(id, 'manual', payload);
 }
 
-/** Webhook trigger — external caller (no session); only needs the workflow to exist. */
+/** Webhook trigger — external caller (no session); counts against the owner's run quota. */
 export async function runWorkflowByWebhook(
   id: string,
   payload: Record<string, unknown>,
 ): Promise<WorkflowRunDto | null> {
-  const exists = await prisma.workflow.findUnique({ where: { id }, select: { id: true } });
-  if (!exists) return null;
+  const wf = await prisma.workflow.findUnique({ where: { id }, select: { userId: true } });
+  if (!wf) return null;
+  await assertCanRun(wf.userId);
   return dispatchRun(id, 'webhook', payload);
 }
 

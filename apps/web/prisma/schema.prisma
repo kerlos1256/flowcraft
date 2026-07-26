@@ -20,6 +20,14 @@ model User {
   name         String
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
+  // Billing (Stripe). plan is the source of truth for entitlements, kept in sync
+  // by the Stripe webhook. Free by default.
+  plan                 String    @default("free") // 'free' | 'pro' | 'team'
+  stripeCustomerId     String?   @map("stripe_customer_id")
+  stripeSubscriptionId String?   @map("stripe_subscription_id")
+  stripeStatus         String?   @map("stripe_status") // active | trialing | past_due | canceled ...
+  currentPeriodEnd     DateTime? @map("current_period_end") @db.Timestamptz(6)
+
   workflows Workflow[]
 
   @@map("users")

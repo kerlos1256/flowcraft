@@ -17,9 +17,17 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
     headers: init?.body ? { 'content-type': 'application/json' } : undefined,
     ...init,
   });
-  if (!res.ok) throw new ApiError(res.status, `${init?.method ?? 'GET'} ${path} → ${res.status}`);
+  if (!res.ok) {
+    // Prefer the server's error message (e.g. plan-limit copy) when present.
+    const data = (await res.json().catch(() => null)) as { error?: string } | null;
+    throw new ApiError(res.status, data?.error ?? `${init?.method ?? 'GET'} ${path} → ${res.status}`);
+  }
   return (res.status === 204 ? undefined : await res.json()) as T;
 }
+
+/** True when an error is a plan-limit (HTTP 402) — callers can prompt an upgrade. */
+export const isUpgradeError = (e: unknown): e is ApiError =>
+  e instanceof ApiError && e.status === 402;
 
 export const createWorkflow = (name: string) =>
   req<WorkflowDto>('/workflows', { method: 'POST', body: JSON.stringify({ name }) });
@@ -62,3 +70,27 @@ export const signup = (email: string, name: string, password: string) =>
   auth('signup', { email, name, password });
 export const login = (email: string, password: string) => auth('login', { email, password });
 export const logout = () => fetch('/api/auth/logout', { method: 'POST' });
+
+// ── Billing ────────────────────────────────────────────────────────────────────
+async function billing(path: string, body?: unknown): Promise<{ url: string }> {
+  const res = await fetch(`/api/billing/${path}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body ?? {}),
+  });
+  const data = (await res.json().catch(() => ({}))) as { url?: string; error?: string };
+  if (!res.ok || !data.url) throw new ApiError(res.status, data.error ?? 'Billing error');
+  return { url: data.url };
+}
+
+/** Redirect to Stripe Checkout for the given paid plan. */
+export async function startCheckout(plan: 'pro' | 'team'): Promise<void> {
+  const { url } = await billing('checkout', { plan });
+  window.location.href = url;
+}
+
+/** Redirect to the Stripe Customer Portal. */
+export async function openBillingPortal(): Promise<void> {
+  const { url } = await billing('portal');
+  window.location.href = url;
+}

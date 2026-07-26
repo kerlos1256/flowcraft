@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import type { FlowGraph, WorkflowStatus } from '@flowcraft/shared-types';
 import { getWorkflow, updateWorkflow, deleteWorkflow } from '@/lib/data';
 import { getSession } from '@/lib/auth';
+import { limitErrorResponse } from '@/lib/api-errors';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -21,8 +22,12 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     graph?: FlowGraph;
     status?: WorkflowStatus;
   };
-  const wf = await updateWorkflow(params.id, s.sub, body);
-  return wf ? NextResponse.json(wf) : NextResponse.json({ error: 'not found' }, { status: 404 });
+  try {
+    const wf = await updateWorkflow(params.id, s.sub, body);
+    return wf ? NextResponse.json(wf) : NextResponse.json({ error: 'not found' }, { status: 404 });
+  } catch (e) {
+    return limitErrorResponse(e) ?? NextResponse.json({ error: 'failed' }, { status: 500 });
+  }
 }
 
 export async function DELETE(_req: Request, { params }: { params: { id: string } }) {
