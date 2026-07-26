@@ -36,3 +36,29 @@ export const runWorkflow = (id: string, payload: Record<string, unknown> = {}) =
 
 export const listRuns = (workflowId?: string) =>
   req<WorkflowRunDto[]>(`/runs${workflowId ? `?workflowId=${workflowId}` : ''}`);
+
+export const useTemplate = (slug: string) =>
+  req<WorkflowDto>('/workflows/from-template', { method: 'POST', body: JSON.stringify({ slug }) });
+
+// ── Auth ──────────────────────────────────────────────────────────────────────
+interface AuthUser {
+  id: string;
+  email: string;
+  name: string;
+}
+
+async function auth(path: string, body: unknown): Promise<AuthUser> {
+  const res = await fetch(`/api/auth/${path}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const data = (await res.json().catch(() => ({}))) as { user?: AuthUser; error?: string };
+  if (!res.ok) throw new ApiError(res.status, data.error ?? `Auth failed (${res.status})`);
+  return data.user!;
+}
+
+export const signup = (email: string, name: string, password: string) =>
+  auth('signup', { email, name, password });
+export const login = (email: string, password: string) => auth('login', { email, password });
+export const logout = () => fetch('/api/auth/logout', { method: 'POST' });

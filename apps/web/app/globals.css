@@ -99,3 +99,39 @@ body {
   padding: 0.45rem 0.55rem;
   color: var(--muted);
 }
+
+/* ── Landing: moving template carousel ─────────────────────────────────────── */
+@keyframes fc-marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+.fc-marquee {
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 6%, #000 94%, transparent);
+  mask-image: linear-gradient(to right, transparent, #000 6%, #000 94%, transparent);
+}
+.fc-marquee-track {
+  display: flex;
+  width: max-content;
+  gap: 1rem;
+  animation: fc-marquee 44s linear infinite;
+}
+.fc-marquee:hover .fc-marquee-track {
+  animation-play-state: paused;
+}
+@media (prefers-reduced-motion: reduce) {
+  .fc-marquee-track {
+    animation: none;
+  }
+}
+
+/* Landing hero aurora backdrop */
+.fc-aurora {
+  background:
+    radial-gradient(60% 50% at 20% 10%, color-mix(in srgb, var(--primary) 22%, transparent), transparent 70%),
+    radial-gradient(50% 45% at 85% 20%, color-mix(in srgb, var(--accent) 20%, transparent), transparent 70%);
+}

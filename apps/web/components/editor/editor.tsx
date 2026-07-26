@@ -167,7 +167,7 @@ function EditorInner({
     <div className="flex flex-col gap-3">
       {/* Toolbar */}
       <div className="flex flex-wrap items-center gap-2">
-        <Link href="/" className="text-sm text-muted hover:text-foreground">
+        <Link href="/app" className="text-sm text-muted hover:text-foreground">
           ← Workflows
         </Link>
         <input

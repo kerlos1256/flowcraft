@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation';
 import { NODE_TEMPLATES, type NodeTemplateDto } from '@flowcraft/shared-types';
+import { getSession } from '@/lib/auth';
 import { getWorkflow, listRuns } from '@/lib/data';
 import { Editor } from '@/components/editor/editor';
 
@@ -15,7 +16,11 @@ const templates: NodeTemplateDto[] = NODE_TEMPLATES.map((t) => ({
 }));
 
 export default async function WorkflowEditorPage({ params }: { params: { id: string } }) {
-  const [workflow, runs] = await Promise.all([getWorkflow(params.id), listRuns(params.id)]);
+  const session = (await getSession())!;
+  const [workflow, runs] = await Promise.all([
+    getWorkflow(params.id, session.sub),
+    listRuns(session.sub, params.id),
+  ]);
   if (!workflow) notFound();
   return <Editor workflow={workflow} templates={templates} initialRuns={runs} />;
 }

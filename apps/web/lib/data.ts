@@ -15,11 +15,42 @@ import {
 } from '@flowcraft/shared-types';
 import { prisma } from './prisma';
 import { inngest } from './inngest/client';
+import { TEMPLATE_BY_SLUG, STARTER_TEMPLATE_SLUGS } from './templates';
 
-// ── Reads ────────────────────────────────────────────────────────────────────
+// ── Users ────────────────────────────────────────────────────────────────────
 
-export async function listWorkflows(): Promise<WorkflowSummaryDto[]> {
-  const rows = await prisma.workflow.findMany({ orderBy: { updatedAt: 'desc' } });
+export async function findUserByEmail(email: string) {
+  return prisma.user.findUnique({ where: { email: email.toLowerCase().trim() } });
+}
+
+export async function createUser(input: {
+  email: string;
+  name: string;
+  passwordHash: string;
+}): Promise<{ id: string; email: string; name: string }> {
+  const user = await prisma.user.create({
+    data: { email: input.email.toLowerCase().trim(), name: input.name, passwordHash: input.passwordHash },
+  });
+  await seedStarterTemplates(user.id);
+  return { id: user.id, email: user.email, name: user.name };
+}
+
+/** Give a brand-new account a few ready-to-run workflows so it isn't empty. */
+export async function seedStarterTemplates(userId: string): Promise<void> {
+  for (const slug of STARTER_TEMPLATE_SLUGS) {
+    const tpl = TEMPLATE_BY_SLUG[slug];
+    if (tpl) {
+      await prisma.workflow.create({
+        data: { userId, name: tpl.name, graph: tpl.graph as object, status: 'draft' },
+      });
+    }
+  }
+}
+
+// ── Reads (scoped to the owner) ──────────────────────────────────────────────
+
+export async function listWorkflows(userId: string): Promise<WorkflowSummaryDto[]> {
+  const rows = await prisma.workflow.findMany({ where: { userId }, orderBy: { updatedAt: 'desc' } });
   return rows.map((r) => {
     const graph = r.graph as unknown as FlowGraph;
     return {
@@ -32,23 +63,23 @@ export async function listWorkflows(): Promise<WorkflowSummaryDto[]> {
   });
 }
 
-export async function getWorkflow(id: string): Promise<WorkflowDto | null> {
-  const r = await prisma.workflow.findUnique({ where: { id } });
+export async function getWorkflow(id: string, userId: string): Promise<WorkflowDto | null> {
+  const r = await prisma.workflow.findFirst({ where: { id, userId } });
   return r ? toWorkflowDto(r) : null;
 }
 
-export async function listRuns(workflowId?: string): Promise<WorkflowRunDto[]> {
+export async function listRuns(userId: string, workflowId?: string): Promise<WorkflowRunDto[]> {
   const rows = await prisma.workflowRun.findMany({
-    where: workflowId ? { workflowId } : undefined,
+    where: { workflow: { userId }, ...(workflowId ? { workflowId } : {}) },
     orderBy: { startedAt: 'desc' },
     take: 100,
   });
   return rows.map(toRunDto);
 }
 
-export async function getRun(id: string): Promise<RunDetailDto | null> {
-  const run = await prisma.workflowRun.findUnique({
-    where: { id },
+export async function getRun(id: string, userId: string): Promise<RunDetailDto | null> {
+  const run = await prisma.workflowRun.findFirst({
+    where: { id, workflow: { userId } },
     include: {
       workflow: { select: { name: true, graph: true } },
       steps: { orderBy: { startedAt: 'asc' } },
@@ -63,21 +94,34 @@ export async function getRun(id: string): Promise<RunDetailDto | null> {
   };
 }
 
-// ── Writes ───────────────────────────────────────────────────────────────────
+// ── Writes (scoped to the owner) ─────────────────────────────────────────────
 
-export async function createWorkflow(name: string): Promise<WorkflowDto> {
+export async function createWorkflow(userId: string, name: string): Promise<WorkflowDto> {
   const r = await prisma.workflow.create({
-    data: { name, graph: emptyGraph() as object, status: 'draft' },
+    data: { userId, name, graph: emptyGraph() as object, status: 'draft' },
+  });
+  return toWorkflowDto(r);
+}
+
+export async function createWorkflowFromTemplate(
+  userId: string,
+  slug: string,
+): Promise<WorkflowDto | null> {
+  const tpl = TEMPLATE_BY_SLUG[slug];
+  if (!tpl) return null;
+  const r = await prisma.workflow.create({
+    data: { userId, name: tpl.name, graph: tpl.graph as object, status: 'draft' },
   });
   return toWorkflowDto(r);
 }
 
 export async function updateWorkflow(
   id: string,
+  userId: string,
   input: { name?: string; graph?: FlowGraph; status?: WorkflowStatus },
 ): Promise<WorkflowDto | null> {
-  const exists = await prisma.workflow.findUnique({ where: { id }, select: { id: true } });
-  if (!exists) return null;
+  const owned = await prisma.workflow.findFirst({ where: { id, userId }, select: { id: true } });
+  if (!owned) return null;
   const r = await prisma.workflow.update({
     where: { id },
     data: { name: input.name, graph: input.graph as object | undefined, status: input.status },
@@ -85,27 +129,45 @@ export async function updateWorkflow(
   return toWorkflowDto(r);
 }
 
-export async function deleteWorkflow(id: string): Promise<boolean> {
-  const exists = await prisma.workflow.findUnique({ where: { id }, select: { id: true } });
-  if (!exists) return false;
+export async function deleteWorkflow(id: string, userId: string): Promise<boolean> {
+  const owned = await prisma.workflow.findFirst({ where: { id, userId }, select: { id: true } });
+  if (!owned) return false;
   await prisma.workflow.delete({ where: { id } });
   return true;
 }
 
-/** Create a run row + fire the durable Inngest event that executes the graph. */
+/** Manual "Run Now" — requires ownership. */
 export async function runWorkflow(
   id: string,
-  triggeredBy: TriggerKind,
+  userId: string,
   payload: Record<string, unknown>,
 ): Promise<WorkflowRunDto | null> {
-  const wf = await prisma.workflow.findUnique({ where: { id }, select: { id: true } });
-  if (!wf) return null;
+  const owned = await prisma.workflow.findFirst({ where: { id, userId }, select: { id: true } });
+  if (!owned) return null;
+  return dispatchRun(id, 'manual', payload);
+}
+
+/** Webhook trigger — external caller (no session); only needs the workflow to exist. */
+export async function runWorkflowByWebhook(
+  id: string,
+  payload: Record<string, unknown>,
+): Promise<WorkflowRunDto | null> {
+  const exists = await prisma.workflow.findUnique({ where: { id }, select: { id: true } });
+  if (!exists) return null;
+  return dispatchRun(id, 'webhook', payload);
+}
+
+async function dispatchRun(
+  workflowId: string,
+  triggeredBy: TriggerKind,
+  payload: Record<string, unknown>,
+): Promise<WorkflowRunDto> {
   const run = await prisma.workflowRun.create({
-    data: { workflowId: id, status: 'running', triggeredBy },
+    data: { workflowId, status: 'running', triggeredBy },
   });
   await inngest.send({
     name: WORKFLOW_RUN_EVENT,
-    data: { workflowId: id, runId: run.id, triggeredBy, payload },
+    data: { workflowId, runId: run.id, triggeredBy, payload },
   });
   return toRunDto(run);
 }
