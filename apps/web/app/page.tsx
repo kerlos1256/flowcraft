@@ -1,5 +1,5 @@
 import type { WorkflowSummaryDto } from '@flowcraft/shared-types';
-import { listWorkflows } from '@/lib/api';
+import { listWorkflows } from '@/lib/data';
 import { WorkflowList } from '@/components/workflow-list';
 
 export const dynamic = 'force-dynamic';

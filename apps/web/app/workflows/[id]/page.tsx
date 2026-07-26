@@ -1,24 +1,21 @@
 import { notFound } from 'next/navigation';
-import type { WorkflowDto, NodeTemplateDto, WorkflowRunDto } from '@flowcraft/shared-types';
-import { getWorkflow, listNodeTemplates, listRuns, ApiError } from '@/lib/api';
+import { NODE_TEMPLATES, type NodeTemplateDto } from '@flowcraft/shared-types';
+import { getWorkflow, listRuns } from '@/lib/data';
 import { Editor } from '@/components/editor/editor';
 
 export const dynamic = 'force-dynamic';
 
-export default async function WorkflowEditorPage({ params }: { params: { id: string } }) {
-  let workflow: WorkflowDto;
-  let templates: NodeTemplateDto[];
-  let runs: WorkflowRunDto[];
-  try {
-    [workflow, templates, runs] = await Promise.all([
-      getWorkflow(params.id),
-      listNodeTemplates(),
-      listRuns(params.id),
-    ]);
-  } catch (e) {
-    if (e instanceof ApiError && e.status === 404) notFound();
-    throw e;
-  }
+const templates: NodeTemplateDto[] = NODE_TEMPLATES.map((t) => ({
+  type: t.type,
+  category: t.category,
+  label: t.label,
+  description: t.description,
+  icon: t.icon,
+  configSchema: t.configSchema,
+}));
 
+export default async function WorkflowEditorPage({ params }: { params: { id: string } }) {
+  const [workflow, runs] = await Promise.all([getWorkflow(params.id), listRuns(params.id)]);
+  if (!workflow) notFound();
   return <Editor workflow={workflow} templates={templates} initialRuns={runs} />;
 }
