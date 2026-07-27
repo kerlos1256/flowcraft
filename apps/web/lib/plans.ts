@@ -15,6 +15,9 @@ export interface PlanConfig {
   maxRunsPerMonth: number;
   scheduled: boolean; // cron/active triggers
   historyDays: number;
+  maxWidgets: number; // embeddable widgets
+  customStyling: boolean; // full widget theme control
+  removeBranding: boolean; // hide "Powered by Flowcraft"
   // ── display ──
   features: string[];
   popular?: boolean;
@@ -32,9 +35,13 @@ export const PLANS: Record<PlanId, PlanConfig> = {
     maxRunsPerMonth: 100,
     scheduled: false,
     historyDays: 7,
+    maxWidgets: 1,
+    customStyling: false,
+    removeBranding: false,
     features: [
       '5 active workflows',
       '100 runs / month',
+      '1 embeddable widget',
       'Manual + webhook triggers',
       'Visual builder + every node type',
       'Durable execution, retries & branching',
@@ -51,11 +58,15 @@ export const PLANS: Record<PlanId, PlanConfig> = {
     maxRunsPerMonth: 10_000,
     scheduled: true,
     historyDays: 90,
+    maxWidgets: 10,
+    customStyling: true,
+    removeBranding: true,
     popular: true,
     stripePriceEnv: 'STRIPE_PRICE_PRO',
     features: [
       '25 active workflows',
       '10,000 runs / month',
+      '10 widgets — full styling, no branding',
       'Scheduled (cron) triggers',
       'Everything in Free',
       '90-day run history',
@@ -71,10 +82,14 @@ export const PLANS: Record<PlanId, PlanConfig> = {
     maxRunsPerMonth: 100_000,
     scheduled: true,
     historyDays: 365,
+    maxWidgets: Number.POSITIVE_INFINITY,
+    customStyling: true,
+    removeBranding: true,
     stripePriceEnv: 'STRIPE_PRICE_TEAM',
     features: [
       'Unlimited workflows',
       '100,000 runs / month',
+      'Unlimited widgets — full styling, no branding',
       'Scheduled (cron) triggers',
       'Everything in Pro',
       '365-day run history',

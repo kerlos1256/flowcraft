@@ -29,6 +29,7 @@ model User {
   currentPeriodEnd     DateTime? @map("current_period_end") @db.Timestamptz(6)
 
   workflows Workflow[]
+  widgets   Widget[]
 
   @@map("users")
 }
@@ -42,8 +43,9 @@ model Workflow {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  user User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  runs WorkflowRun[]
+  user    User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  runs    WorkflowRun[]
+  widgets Widget[]
 
   @@index([userId])
   @@map("workflows")
@@ -93,4 +95,39 @@ model NodeTemplate {
   configSchema Json   @map("config_schema")
 
   @@map("node_templates")
+}
+
+model Widget {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String   @map("user_id") @db.Uuid
+  workflowId String   @map("workflow_id") @db.Uuid
+  name       String
+  type       String // 'form' | 'button' | 'feedback' | 'email_capture' | 'chat'
+  placement  String   @default("inline") // 'inline' | 'floating'
+  // Renderable config: fields, labels, theme, protection (domain allowlist, turnstile).
+  config     Json     @default("{}")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user        User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workflow    Workflow           @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  submissions WidgetSubmission[]
+
+  @@index([userId])
+  @@map("widgets")
+}
+
+// One row per public submission — powers rate limiting (per IP / per widget) and
+// light analytics. Stores a hashed IP, never the raw address.
+model WidgetSubmission {
+  id        String   @id @default(uuid()) @db.Uuid
+  widgetId  String   @map("widget_id") @db.Uuid
+  ipHash    String   @map("ip_hash")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  widget Widget @relation(fields: [widgetId], references: [id], onDelete: Cascade)
+
+  @@index([widgetId, createdAt])
+  @@index([ipHash, createdAt])
+  @@map("widget_submissions")
 }

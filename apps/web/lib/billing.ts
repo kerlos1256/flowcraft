@@ -5,7 +5,7 @@ import { planConfig, type PlanConfig } from './plans';
 export class LimitError extends Error {
   constructor(
     message: string,
-    public code: 'workflow_limit' | 'run_limit' | 'schedule_locked',
+    public code: 'workflow_limit' | 'run_limit' | 'schedule_locked' | 'widget_limit',
   ) {
     super(message);
     this.name = 'LimitError';
@@ -61,5 +61,22 @@ export async function assertCanSchedule(userId: string): Promise<void> {
   const { plan } = await getPlanAndUsage(userId);
   if (!plan.scheduled) {
     throw new LimitError('Scheduled (cron) triggers are a Pro feature. Upgrade to enable scheduling.', 'schedule_locked');
+  }
+}
+
+/** The user's plan config (for widget entitlements). */
+export async function getUserPlan(userId: string): Promise<PlanConfig> {
+  const u = await prisma.user.findUnique({ where: { id: userId }, select: { plan: true } });
+  return planConfig(u?.plan);
+}
+
+export async function assertCanCreateWidget(userId: string): Promise<void> {
+  const plan = await getUserPlan(userId);
+  const widgets = await prisma.widget.count({ where: { userId } });
+  if (widgets >= plan.maxWidgets) {
+    throw new LimitError(
+      `Your plan includes ${plan.maxWidgets} widget${plan.maxWidgets === 1 ? '' : 's'}. Upgrade to add more.`,
+      'widget_limit',
+    );
   }
 }

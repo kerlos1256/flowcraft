@@ -55,6 +55,19 @@ export const submitOnboarding = (useCase: string) =>
     body: JSON.stringify({ useCase }),
   });
 
+// ── Widgets ────────────────────────────────────────────────────────────────────
+import type { WidgetFull, WidgetConfig, WidgetPlacement } from '@/lib/widgets';
+
+export const createWidgetApi = (name: string, type: string, workflowId: string) =>
+  req<WidgetFull>('/widgets', { method: 'POST', body: JSON.stringify({ name, type, workflowId }) });
+
+export const updateWidgetApi = (
+  id: string,
+  patch: { name?: string; placement?: WidgetPlacement; config?: WidgetConfig; workflowId?: string },
+) => req<WidgetFull>(`/widgets/${id}`, { method: 'PATCH', body: JSON.stringify(patch) });
+
+export const deleteWidgetApi = (id: string) => req<void>(`/widgets/${id}`, { method: 'DELETE' });
+
 // ── Auth ──────────────────────────────────────────────────────────────────────
 interface AuthUser {
   id: string;

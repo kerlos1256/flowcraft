@@ -18,9 +18,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             <span className="text-lg">{appConfig.logoGlyph}</span>
             {appConfig.name}
           </Link>
-          <nav className="ml-6 hidden sm:flex">
+          <nav className="ml-6 hidden items-center gap-4 sm:flex">
             <Link href="/app" className="text-sm text-muted hover:text-foreground">
               Workflows
+            </Link>
+            <Link href="/widgets" className="text-sm text-muted hover:text-foreground">
+              Widgets
             </Link>
           </nav>
           <div className="ml-auto">
