@@ -28,36 +28,29 @@ import {
   type WorkflowStatus,
 } from '@flowcraft/shared-types';
 import { runStatusColor } from '@/config/app.config';
-import { updateWorkflow, runWorkflow, listRuns } from '@/lib/api';
+import { updateWorkflow, runWorkflow, listRuns, createWidgetApi } from '@/lib/api';
+import { WIDGET_PRESETS, WIDGET_TYPES, type WidgetType } from '@/lib/widgets';
+import { Modal } from '@/components/ui/modal';
 import { FlowNodeView, type FcNode } from './flow-node';
-import { Palette } from './palette';
+import { Palette, type PaletteWidget } from './palette';
 import { ConfigPanel } from './config-panel';
 
-export function Editor({
-  workflow,
-  templates,
-  initialRuns,
-}: {
+interface EditorProps {
   workflow: WorkflowDto;
   templates: NodeTemplateDto[];
   initialRuns: WorkflowRunDto[];
-}) {
+  widgets: PaletteWidget[];
+}
+
+export function Editor(props: EditorProps) {
   return (
     <ReactFlowProvider>
-      <EditorInner workflow={workflow} templates={templates} initialRuns={initialRuns} />
+      <EditorInner {...props} />
     </ReactFlowProvider>
   );
 }
 
-function EditorInner({
-  workflow,
-  templates,
-  initialRuns,
-}: {
-  workflow: WorkflowDto;
-  templates: NodeTemplateDto[];
-  initialRuns: WorkflowRunDto[];
-}) {
+function EditorInner({ workflow, templates, initialRuns, widgets: widgetsProp }: EditorProps) {
   const [nodes, setNodes, onNodesChange] = useNodesState<FcNode>(
     workflow.graph.nodes as FcNode[],
   );
@@ -68,6 +61,15 @@ function EditorInner({
   const [runs, setRuns] = useState(initialRuns);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+
+  // Widgets available to drop as trigger nodes (kept in local state so creating
+  // one from the canvas doesn't require a page refresh that would drop edits).
+  const [widgets, setWidgets] = useState<PaletteWidget[]>(widgetsProp);
+  const [newWidgetOpen, setNewWidgetOpen] = useState(false);
+  const [nwName, setNwName] = useState('Contact form');
+  const [nwType, setNwType] = useState<WidgetType>('form');
+  const [nwBusy, setNwBusy] = useState(false);
+  const [nwErr, setNwErr] = useState<string | null>(null);
 
   const { screenToFlowPosition } = useReactFlow();
   const wrapper = useRef<HTMLDivElement>(null);
@@ -80,12 +82,43 @@ function EditorInner({
     [setEdges],
   );
 
+  const addWidgetTriggerNode = useCallback(
+    (widget: { id: string; name: string }, pos?: { x: number; y: number }) => {
+      const position = pos ?? { x: 120, y: 60 };
+      const node: FcNode = {
+        id: crypto.randomUUID(),
+        type: 'flowNode',
+        position,
+        data: {
+          type: 'widget_trigger',
+          label: widget.name,
+          config: { widgetId: widget.id, widgetName: widget.name },
+        },
+      };
+      setNodes((nds) => [...nds, node]);
+    },
+    [setNodes],
+  );
+
   const onDrop = useCallback(
     (event: React.DragEvent) => {
       event.preventDefault();
+      const position = screenToFlowPosition({ x: event.clientX, y: event.clientY });
+
+      // A widget dragged from the "Your widgets" palette section → widget_trigger.
+      const widgetRaw = event.dataTransfer.getData('application/flowcraft-widget');
+      if (widgetRaw) {
+        try {
+          const w = JSON.parse(widgetRaw) as { id: string; name: string };
+          addWidgetTriggerNode(w, position);
+        } catch {
+          /* ignore */
+        }
+        return;
+      }
+
       const type = event.dataTransfer.getData('application/flowcraft-node') as NodeType;
       if (!type || !NODE_TEMPLATE_BY_TYPE[type]) return;
-      const position = screenToFlowPosition({ x: event.clientX, y: event.clientY });
       const tpl = NODE_TEMPLATE_BY_TYPE[type];
       const newNode: FcNode = {
         id: crypto.randomUUID(),
@@ -95,8 +128,24 @@ function EditorInner({
       };
       setNodes((nds) => [...nds, newNode]);
     },
-    [screenToFlowPosition, setNodes],
+    [screenToFlowPosition, setNodes, addWidgetTriggerNode],
   );
+
+  async function createWidgetFromCanvas() {
+    setNwBusy(true);
+    setNwErr(null);
+    try {
+      // Link the new widget to THIS workflow, then drop its trigger onto the canvas.
+      const w = await createWidgetApi(nwName.trim() || WIDGET_PRESETS[nwType].label, nwType, workflow.id);
+      setWidgets((xs) => [{ id: w.id, name: w.name, type: w.type }, ...xs]);
+      addWidgetTriggerNode({ id: w.id, name: w.name });
+      setNewWidgetOpen(false);
+    } catch (e) {
+      setNwErr((e as Error).message);
+    } finally {
+      setNwBusy(false);
+    }
+  }
 
   const patchSelected = useCallback(
     (patch: Partial<FlowNodeData>) => {
@@ -200,7 +249,7 @@ function EditorInner({
         className="flex h-[68vh] overflow-hidden rounded-lg border border-border bg-surface"
         ref={wrapper}
       >
-        <Palette templates={templates} />
+        <Palette templates={templates} widgets={widgets} onNewWidget={() => setNewWidgetOpen(true)} />
 
         <div className="relative flex-1" onDrop={onDrop} onDragOver={(e) => e.preventDefault()}>
           <ReactFlow
@@ -232,6 +281,62 @@ function EditorInner({
           <RunsPanel runs={runs} onRefresh={refreshRuns} />
         )}
       </div>
+
+      {/* Create a widget from the canvas — linked to this workflow. */}
+      <Modal
+        open={newWidgetOpen}
+        onClose={() => !nwBusy && setNewWidgetOpen(false)}
+        title="New widget"
+        description="It’ll be linked to this workflow and added as a trigger."
+      >
+        <div className="flex flex-col gap-4">
+          <div className="grid gap-2">
+            {WIDGET_TYPES.map((t) => (
+              <button
+                key={t}
+                onClick={() => {
+                  setNwType(t);
+                  setNwName(WIDGET_PRESETS[t].label);
+                }}
+                className={`flex items-center gap-3 rounded-lg border p-2.5 text-left ${
+                  nwType === t ? 'border-primary bg-surface-muted' : 'border-border'
+                }`}
+              >
+                <span className="text-lg">{WIDGET_PRESETS[t].icon}</span>
+                <div>
+                  <div className="text-sm font-medium">{WIDGET_PRESETS[t].label}</div>
+                  <div className="text-[11px] text-muted">{WIDGET_PRESETS[t].blurb}</div>
+                </div>
+              </button>
+            ))}
+          </div>
+          <label className="flex flex-col gap-1 text-xs text-muted">
+            Widget name
+            <input
+              className="rounded-md border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-primary"
+              value={nwName}
+              onChange={(e) => setNwName(e.target.value)}
+            />
+          </label>
+          {nwErr && <p className="text-sm text-red-500">{nwErr}</p>}
+          <div className="flex justify-end gap-2">
+            <button
+              className="rounded-md border border-border px-3.5 py-2 text-sm hover:bg-surface-muted"
+              onClick={() => setNewWidgetOpen(false)}
+              disabled={nwBusy}
+            >
+              Cancel
+            </button>
+            <button
+              className="rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-60"
+              onClick={createWidgetFromCanvas}
+              disabled={nwBusy}
+            >
+              {nwBusy ? 'Creating…' : 'Create & add'}
+            </button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

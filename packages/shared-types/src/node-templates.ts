@@ -58,6 +58,14 @@ export const NODE_TEMPLATES: NodeTemplate[] = [
     configSchema: [],
   },
   {
+    type: 'widget_trigger',
+    category: 'trigger',
+    label: 'Widget',
+    description: 'Starts the flow when an embedded widget (form, button, …) is submitted.',
+    icon: '🧩',
+    configSchema: [],
+  },
+  {
     type: 'send_slack',
     category: 'action',
     label: 'Send Slack',

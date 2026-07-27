@@ -66,6 +66,8 @@ function summarize(data: FlowNodeData): string {
       return `${str(c.method) || 'GET'} ${truncate(str(c.url) || 'url…')}`;
     case 'condition':
       return `${str(c.left) || '?'} ${op(str(c.operator))} ${str(c.right) || '?'}`;
+    case 'widget_trigger':
+      return `on submit · ${str(c.widgetName) || 'widget'}`;
     default:
       return NODE_TEMPLATE_BY_TYPE[data.type].description;
   }

@@ -5,6 +5,7 @@
 export const NODE_TYPES = [
   'manual_trigger',
   'webhook_trigger',
+  'widget_trigger',
   'send_slack',
   'send_email',
   'http_request',
@@ -33,6 +34,7 @@ export type TriggerKind = (typeof TRIGGER_KINDS)[number];
 export const NODE_TYPE_CATEGORY: Record<NodeType, NodeCategory> = {
   manual_trigger: 'trigger',
   webhook_trigger: 'trigger',
+  widget_trigger: 'trigger',
   send_slack: 'action',
   send_email: 'action',
   http_request: 'action',

@@ -57,6 +57,36 @@ export async function getWorkflow(id: string, userId: string): Promise<WorkflowD
   return r ? toWorkflowDto(r) : null;
 }
 
+export type TriggerKindInfo = 'webhook' | 'manual' | 'none';
+
+export interface WorkflowTriggerInfo {
+  id: string;
+  name: string;
+  triggerKind: TriggerKindInfo;
+}
+
+/** Classify a graph's entry trigger — used to guide/validate widget linking. */
+export function graphTriggerKind(graph: FlowGraph): TriggerKindInfo {
+  const types = (graph.nodes ?? []).map((n) => n.data?.type);
+  if (types.includes('webhook_trigger')) return 'webhook';
+  if (types.includes('manual_trigger')) return 'manual';
+  return 'none';
+}
+
+/** The user's workflows with their trigger kind (for the widget link picker). */
+export async function listWorkflowTriggerInfo(userId: string): Promise<WorkflowTriggerInfo[]> {
+  const rows = await prisma.workflow.findMany({
+    where: { userId },
+    orderBy: { updatedAt: 'desc' },
+    select: { id: true, name: true, graph: true },
+  });
+  return rows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    triggerKind: graphTriggerKind(r.graph as unknown as FlowGraph),
+  }));
+}
+
 export async function listRuns(userId: string, workflowId?: string): Promise<WorkflowRunDto[]> {
   const rows = await prisma.workflowRun.findMany({
     where: { workflow: { userId }, ...(workflowId ? { workflowId } : {}) },
@@ -119,6 +149,21 @@ export async function updateWorkflow(
     where: { id },
     data: { name: input.name, graph: input.graph as object | undefined, status: input.status },
   });
+
+  // Any widget dropped as a trigger in this canvas should now fire THIS workflow.
+  if (input.graph) {
+    const widgetIds = input.graph.nodes
+      .filter((n) => n.data?.type === 'widget_trigger')
+      .map((n) => String(n.data.config?.widgetId ?? ''))
+      .filter(Boolean);
+    if (widgetIds.length) {
+      await prisma.widget.updateMany({
+        where: { id: { in: widgetIds }, userId },
+        data: { workflowId: id },
+      });
+    }
+  }
+
   return toWorkflowDto(r);
 }
 

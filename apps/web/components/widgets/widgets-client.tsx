@@ -7,6 +7,8 @@ import { WIDGET_PRESETS, WIDGET_TYPES, type WidgetSummary } from '@/lib/widgets'
 import { createWidgetApi, deleteWidgetApi, isUpgradeError } from '@/lib/api';
 import { Modal } from '@/components/ui/modal';
 
+type WfTrigger = { id: string; name: string; triggerKind: 'webhook' | 'manual' | 'none' };
+
 export function WidgetsClient({
   initial,
   workflows,
@@ -14,7 +16,7 @@ export function WidgetsClient({
   used,
 }: {
   initial: WidgetSummary[];
-  workflows: { id: string; name: string }[];
+  workflows: WfTrigger[];
   maxWidgets: number | null;
   used: number;
 }) {
@@ -24,17 +26,21 @@ export function WidgetsClient({
   const [limit, setLimit] = useState<string | null>(null);
   const [toDelete, setToDelete] = useState<WidgetSummary | null>(null);
 
+  const firstUsable = workflows.find((w) => w.triggerKind !== 'none')?.id ?? '';
+
   // create form
   const [name, setName] = useState('');
   const [type, setType] = useState<string>('form');
-  const [workflowId, setWorkflowId] = useState(workflows[0]?.id ?? '');
+  const [workflowId, setWorkflowId] = useState(firstUsable);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  const selectedWf = workflows.find((w) => w.id === workflowId);
 
   function openCreate() {
     setName(WIDGET_PRESETS.form.label);
     setType('form');
-    setWorkflowId(workflows[0]?.id ?? '');
+    setWorkflowId(firstUsable);
     setErr(null);
     setLimit(null);
     setOpen(true);
@@ -155,12 +161,20 @@ export function WidgetsClient({
             <select className="rounded-md border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-primary" value={workflowId} onChange={(e) => setWorkflowId(e.target.value)}>
               {workflows.length === 0 && <option value="">No workflows yet</option>}
               {workflows.map((w) => (
-                <option key={w.id} value={w.id}>
+                <option key={w.id} value={w.id} disabled={w.triggerKind === 'none'}>
                   {w.name}
+                  {w.triggerKind === 'webhook' ? ' — webhook ✓' : w.triggerKind === 'manual' ? ' — manual' : ' — no trigger (add one)'}
                 </option>
               ))}
             </select>
           </label>
+
+          {selectedWf?.triggerKind === 'manual' && (
+            <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[11px]">
+              This workflow starts with a <b>Manual</b> trigger. The widget will still run it, but for a
+              clearer setup, open the workflow and drop this widget on the canvas as its trigger.
+            </p>
+          )}
 
           {err && <p className="text-sm text-red-500">{err}</p>}
 

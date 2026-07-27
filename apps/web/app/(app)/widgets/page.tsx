@@ -1,6 +1,6 @@
 import { getSession } from '@/lib/auth';
 import { listWidgets } from '@/lib/widget-data';
-import { listWorkflows } from '@/lib/data';
+import { listWorkflowTriggerInfo } from '@/lib/data';
 import { getUserPlan } from '@/lib/billing';
 import { prisma } from '@/lib/prisma';
 import { WidgetsClient } from '@/components/widgets/widgets-client';
@@ -11,7 +11,7 @@ export default async function WidgetsPage() {
   const s = (await getSession())!;
   const [widgets, workflows, plan, count] = await Promise.all([
     listWidgets(s.sub),
-    listWorkflows(s.sub),
+    listWorkflowTriggerInfo(s.sub),
     getUserPlan(s.sub),
     prisma.widget.count({ where: { userId: s.sub } }),
   ]);
@@ -22,13 +22,14 @@ export default async function WidgetsPage() {
         <h1 className="text-2xl font-semibold">Widgets</h1>
         <p className="mt-1 text-sm text-muted">
           Embeddable triggers — paste one script tag into any site (WordPress, Shopify, anything) and
-          every submission runs a workflow, durably.
+          every submission runs a workflow, durably. Tip: you can also drop a widget as a trigger
+          right inside the workflow canvas.
         </p>
       </div>
 
       <WidgetsClient
         initial={widgets}
-        workflows={workflows.map((w) => ({ id: w.id, name: w.name }))}
+        workflows={workflows}
         maxWidgets={plan.maxWidgets === Number.POSITIVE_INFINITY ? null : plan.maxWidgets}
         used={count}
       />

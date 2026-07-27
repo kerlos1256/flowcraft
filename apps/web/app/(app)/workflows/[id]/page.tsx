@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation';
 import { NODE_TEMPLATES, type NodeTemplateDto } from '@flowcraft/shared-types';
 import { getSession } from '@/lib/auth';
 import { getWorkflow, listRuns } from '@/lib/data';
+import { listWidgets } from '@/lib/widget-data';
 import { Editor } from '@/components/editor/editor';
 
 export const dynamic = 'force-dynamic';
@@ -17,10 +18,18 @@ const templates: NodeTemplateDto[] = NODE_TEMPLATES.map((t) => ({
 
 export default async function WorkflowEditorPage({ params }: { params: { id: string } }) {
   const session = (await getSession())!;
-  const [workflow, runs] = await Promise.all([
+  const [workflow, runs, widgets] = await Promise.all([
     getWorkflow(params.id, session.sub),
     listRuns(session.sub, params.id),
+    listWidgets(session.sub),
   ]);
   if (!workflow) notFound();
-  return <Editor workflow={workflow} templates={templates} initialRuns={runs} />;
+  return (
+    <Editor
+      workflow={workflow}
+      templates={templates}
+      initialRuns={runs}
+      widgets={widgets.map((w) => ({ id: w.id, name: w.name, type: w.type }))}
+    />
+  );
 }
