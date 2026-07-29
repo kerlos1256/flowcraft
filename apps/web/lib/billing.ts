@@ -1,11 +1,19 @@
 import { prisma } from './prisma';
 import { planConfig, type PlanConfig } from './plans';
+import { aiTokenCost, type AiModelId } from './ai/models';
 
 /** Thrown when an action exceeds the user's plan; surfaced as HTTP 402 + upgrade CTA. */
 export class LimitError extends Error {
   constructor(
     message: string,
-    public code: 'workflow_limit' | 'run_limit' | 'schedule_locked' | 'widget_limit',
+    public code:
+      | 'workflow_limit'
+      | 'run_limit'
+      | 'schedule_locked'
+      | 'widget_limit'
+      | 'ai_limit'
+      | 'ai_workflow_limit'
+      | 'ai_opus_locked',
   ) {
     super(message);
     this.name = 'LimitError';
@@ -78,5 +86,69 @@ export async function assertCanCreateWidget(userId: string): Promise<void> {
       `Your plan includes ${plan.maxWidgets} widget${plan.maxWidgets === 1 ? '' : 's'}. Upgrade to add more.`,
       'widget_limit',
     );
+  }
+}
+
+// ── AI assistant token budget ──────────────────────────────────────────────────
+// Free: 3 tokens lifetime, 1 per workflow, Sonnet only. Pro/Team: monthly budget,
+// Sonnet + Opus. Usage is a SUM of token costs (Sonnet 1, Opus 2), counted at the
+// account level — which is the workspace today (no multi-member model yet).
+
+export interface AiUsage {
+  planId: string;
+  window: 'lifetime' | 'month';
+  tokens: number;
+  used: number;
+  remaining: number;
+  perWorkflowLimit: number | null;
+  perWorkflowUsed: number;
+  allowOpus: boolean;
+}
+
+export async function getAiUsage(userId: string, workflowId?: string): Promise<AiUsage> {
+  const plan = await getUserPlan(userId);
+  const windowStart = plan.aiTokenWindow === 'month' ? startOfMonthUTC() : undefined;
+  const [usedAgg, perWfAgg] = await Promise.all([
+    prisma.aiEdit.aggregate({
+      _sum: { tokenCost: true },
+      where: { userId, ...(windowStart ? { createdAt: { gte: windowStart } } : {}) },
+    }),
+    // Per-workflow cap is lifetime (a workflow gets its one free build ever).
+    workflowId
+      ? prisma.aiEdit.aggregate({ _sum: { tokenCost: true }, where: { userId, workflowId } })
+      : Promise.resolve(null),
+  ]);
+  const used = usedAgg._sum.tokenCost ?? 0;
+  const perWorkflowUsed = perWfAgg?._sum.tokenCost ?? 0;
+  return {
+    planId: plan.id,
+    window: plan.aiTokenWindow,
+    tokens: plan.aiTokens,
+    used,
+    remaining: Math.max(0, plan.aiTokens - used),
+    perWorkflowLimit: plan.aiPerWorkflowTokens,
+    perWorkflowUsed,
+    allowOpus: plan.aiOpus,
+  };
+}
+
+export async function assertCanUseAi(userId: string, workflowId: string, model: AiModelId): Promise<void> {
+  const cost = aiTokenCost(model);
+  const u = await getAiUsage(userId, workflowId);
+  if (model === 'opus' && !u.allowOpus) {
+    throw new LimitError('The Opus model is available on paid plans — switch to Sonnet, or upgrade to use Opus.', 'ai_opus_locked');
+  }
+  if (u.perWorkflowLimit != null && u.perWorkflowUsed + cost > u.perWorkflowLimit) {
+    throw new LimitError(
+      'The Free plan includes one AI build per workflow. Upgrade to Pro for unlimited AI edits per workflow.',
+      'ai_workflow_limit',
+    );
+  }
+  if (u.remaining < cost) {
+    const msg =
+      u.window === 'lifetime'
+        ? "You've used all 3 of your free AI builds. Upgrade to Pro for 150 AI tokens every month."
+        : "You've used all your AI tokens for this month. Upgrade or wait for your monthly reset.";
+    throw new LimitError(msg, 'ai_limit');
   }
 }

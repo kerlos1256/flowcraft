@@ -30,16 +30,19 @@ import {
 import { runStatusColor } from '@/config/app.config';
 import { updateWorkflow, runWorkflow, listRuns, createWidgetApi } from '@/lib/api';
 import { WIDGET_PRESETS, WIDGET_TYPES, type WidgetType } from '@/lib/widgets';
+import type { AiUsageDto } from '@/lib/ai/types';
 import { Modal } from '@/components/ui/modal';
 import { FlowNodeView, type FcNode } from './flow-node';
 import { Palette, type PaletteWidget } from './palette';
 import { ConfigPanel } from './config-panel';
+import { AiAssistant } from './ai-assistant';
 
 interface EditorProps {
   workflow: WorkflowDto;
   templates: NodeTemplateDto[];
   initialRuns: WorkflowRunDto[];
   widgets: PaletteWidget[];
+  aiUsage: AiUsageDto;
 }
 
 export function Editor(props: EditorProps) {
@@ -50,7 +53,7 @@ export function Editor(props: EditorProps) {
   );
 }
 
-function EditorInner({ workflow, templates, initialRuns, widgets: widgetsProp }: EditorProps) {
+function EditorInner({ workflow, templates, initialRuns, widgets: widgetsProp, aiUsage }: EditorProps) {
   const [nodes, setNodes, onNodesChange] = useNodesState<FcNode>(
     workflow.graph.nodes as FcNode[],
   );
@@ -165,6 +168,40 @@ function EditorInner({ workflow, templates, initialRuns, widgets: widgetsProp }:
     setEdges((eds) => eds.filter((e) => e.source !== selectedId && e.target !== selectedId));
     setSelectedId(null);
   }, [selectedId, setNodes, setEdges]);
+
+  // The AI assistant returns a full graph; replace canvas state, highlight the
+  // nodes it touched, then let the user review and hit Save (same save path).
+  const highlightTimer = useRef<ReturnType<typeof setTimeout>>();
+  const handleAiApply = useCallback(
+    (graph: FlowGraph, changedIds: string[]) => {
+      const changed = new Set(changedIds);
+      setNodes(
+        graph.nodes.map((n) => ({
+          id: n.id,
+          type: 'flowNode',
+          position: n.position,
+          data: n.data,
+          className: changed.has(n.id) ? 'fc-hl' : undefined,
+        })) as FcNode[],
+      );
+      setEdges(
+        graph.edges.map((e) => ({
+          id: e.id,
+          source: e.source,
+          target: e.target,
+          sourceHandle: e.sourceHandle ?? undefined,
+          targetHandle: e.targetHandle ?? undefined,
+        })) as Edge[],
+      );
+      setSelectedId(null);
+      setMessage('AI applied changes — review and Save.');
+      if (highlightTimer.current) clearTimeout(highlightTimer.current);
+      highlightTimer.current = setTimeout(() => {
+        setNodes((nds) => nds.map((n) => (n.className ? { ...n, className: undefined } : n)));
+      }, 5000);
+    },
+    [setNodes, setEdges],
+  );
 
   function serialize(): FlowGraph {
     return {
@@ -337,6 +374,9 @@ function EditorInner({ workflow, templates, initialRuns, widgets: widgetsProp }:
           </div>
         </div>
       </Modal>
+
+      {/* Plain-language workflow editing — applies to the canvas, you Save. */}
+      <AiAssistant workflowId={workflow.id} usage={aiUsage} onApply={handleAiApply} />
     </div>
   );
 }

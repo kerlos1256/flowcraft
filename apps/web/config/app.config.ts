@@ -74,6 +74,9 @@ export const runStatusColor: Record<RunStatus, string> = {
   failed: '#ef4444',
 };
 
+/** AI assistant accent — button, panel, and the highlight ring on AI-edited nodes. */
+export const aiAccent = '#8b5cf6';
+
 export const tokens = {
   radiusSm: '0.375rem',
   radiusMd: '0.5rem',
@@ -111,6 +114,7 @@ function shared(): Record<string, string> {
     '--cat-action': categoryColor.action,
     '--cat-delay': categoryColor.delay,
     '--cat-condition': categoryColor.condition,
+    '--ai-accent': aiAccent,
   };
 }
 

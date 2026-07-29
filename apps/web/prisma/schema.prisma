@@ -30,6 +30,7 @@ model User {
 
   workflows Workflow[]
   widgets   Widget[]
+  aiEdits   AiEdit[]
 
   @@map("users")
 }
@@ -46,9 +47,32 @@ model Workflow {
   user    User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   runs    WorkflowRun[]
   widgets Widget[]
+  aiEdits AiEdit[]
 
   @@index([userId])
   @@map("workflows")
+}
+
+// One row per successful AI assistant edit — the authoritative usage ledger for
+// the token quota (Free: 3 lifetime / 1 per workflow; Pro/Team: monthly budget,
+// counted per account = workspace). tokenCost is the model's cost (Sonnet 1, Opus 2).
+model AiEdit {
+  id          String   @id @default(uuid()) @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  workflowId  String   @map("workflow_id") @db.Uuid
+  model       String // 'sonnet' | 'opus'
+  tokenCost   Int      @map("token_cost")
+  promptChars Int      @map("prompt_chars")
+  tokensIn    Int?     @map("tokens_in")
+  tokensOut   Int?     @map("tokens_out")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workflow Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([userId, workflowId])
+  @@map("ai_edits")
 }
 
 model WorkflowRun {

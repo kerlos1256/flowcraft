@@ -18,6 +18,11 @@ export interface PlanConfig {
   maxWidgets: number; // embeddable widgets
   customStyling: boolean; // full widget theme control
   removeBranding: boolean; // hide "Powered by Flowcraft"
+  // ── AI assistant (token budget; Sonnet costs 1, Opus costs 2) ──
+  aiTokens: number; // budget per window
+  aiTokenWindow: 'lifetime' | 'month'; // Free = lifetime trial; paid = calendar month
+  aiPerWorkflowTokens: number | null; // Free = 1 per workflow; null = unlimited per workflow
+  aiOpus: boolean; // may select the Opus model (2 tokens/use)
   // ── display ──
   features: string[];
   popular?: boolean;
@@ -38,10 +43,15 @@ export const PLANS: Record<PlanId, PlanConfig> = {
     maxWidgets: 1,
     customStyling: false,
     removeBranding: false,
+    aiTokens: 3,
+    aiTokenWindow: 'lifetime',
+    aiPerWorkflowTokens: 1,
+    aiOpus: false,
     features: [
       '5 active workflows',
       '100 runs / month',
       '1 embeddable widget',
+      '✨ 3 AI workflow builds (1 per workflow)',
       'Manual + webhook triggers',
       'Visual builder + every node type',
       'Durable execution, retries & branching',
@@ -61,12 +71,17 @@ export const PLANS: Record<PlanId, PlanConfig> = {
     maxWidgets: 10,
     customStyling: true,
     removeBranding: true,
+    aiTokens: 150,
+    aiTokenWindow: 'month',
+    aiPerWorkflowTokens: null,
+    aiOpus: true,
     popular: true,
     stripePriceEnv: 'STRIPE_PRICE_PRO',
     features: [
       '25 active workflows',
       '10,000 runs / month',
       '10 widgets — full styling, no branding',
+      '✨ 150 AI tokens / month — Sonnet & Opus',
       'Scheduled (cron) triggers',
       'Everything in Free',
       '90-day run history',
@@ -85,11 +100,16 @@ export const PLANS: Record<PlanId, PlanConfig> = {
     maxWidgets: Number.POSITIVE_INFINITY,
     customStyling: true,
     removeBranding: true,
+    aiTokens: 750,
+    aiTokenWindow: 'month',
+    aiPerWorkflowTokens: null,
+    aiOpus: true,
     stripePriceEnv: 'STRIPE_PRICE_TEAM',
     features: [
       'Unlimited workflows',
       '100,000 runs / month',
       'Unlimited widgets — full styling, no branding',
+      '✨ 750 AI tokens / month (per workspace)',
       'Scheduled (cron) triggers',
       'Everything in Pro',
       '365-day run history',

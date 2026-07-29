@@ -48,6 +48,17 @@ export const listRuns = (workflowId?: string) =>
 export const useTemplate = (slug: string) =>
   req<WorkflowDto>('/workflows/from-template', { method: 'POST', body: JSON.stringify({ slug }) });
 
+// ── AI assistant ────────────────────────────────────────────────────────────────
+import type { AiEditResult, AiChatTurn } from '@/lib/ai/types';
+import type { AiModelId } from '@/lib/ai/models';
+
+/** Ask the assistant to edit a workflow in plain language. Returns the new graph. */
+export const aiEditWorkflow = (id: string, message: string, model: AiModelId, history: AiChatTurn[] = []) =>
+  req<AiEditResult>(`/workflows/${id}/ai`, {
+    method: 'POST',
+    body: JSON.stringify({ message, model, history }),
+  });
+
 /** Onboarding: seed a tailored starter for the chosen use case (or none). */
 export const submitOnboarding = (useCase: string) =>
   req<{ workflowId: string | null }>('/onboarding', {
