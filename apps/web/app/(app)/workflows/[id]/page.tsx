@@ -1,8 +1,8 @@
 import { notFound } from 'next/navigation';
 import { NODE_TEMPLATES, type NodeTemplateDto } from '@flowcraft/shared-types';
-import { getSession } from '@/lib/auth';
 import { getWorkflow, listRuns } from '@/lib/data';
 import { getAiUsage } from '@/lib/billing';
+import { resolveTenant } from '@/lib/workspace/tenant';
 import { aiConfigured } from '@/lib/ai/client';
 import { listWidgets } from '@/lib/widget-data';
 import { Editor } from '@/components/editor/editor';
@@ -19,12 +19,12 @@ const templates: NodeTemplateDto[] = NODE_TEMPLATES.map((t) => ({
 }));
 
 export default async function WorkflowEditorPage({ params }: { params: { id: string } }) {
-  const session = (await getSession())!;
+  const tenant = (await resolveTenant())!;
   const [workflow, runs, widgets, aiUsage] = await Promise.all([
-    getWorkflow(params.id, session.sub),
-    listRuns(session.sub, params.id),
-    listWidgets(session.sub),
-    getAiUsage(session.sub, params.id),
+    getWorkflow(params.id, tenant),
+    listRuns(tenant, params.id),
+    listWidgets(tenant),
+    getAiUsage(tenant, params.id),
   ]);
   if (!workflow) notFound();
   return (

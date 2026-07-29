@@ -1,21 +1,22 @@
 import { NextResponse } from 'next/server';
-import { getSession } from '@/lib/auth';
+import { resolveTenant, requirePermission, assertWritable } from '@/lib/workspace/tenant';
 import { listWidgets, createWidget } from '@/lib/widget-data';
 import { limitErrorResponse } from '@/lib/api-errors';
+import { workspaceErrorResponse } from '@/lib/workspace/http';
 import type { WidgetPlacement } from '@/lib/widgets';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
-  const s = await getSession();
-  if (!s) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-  return NextResponse.json(await listWidgets(s.sub));
+  const t = await resolveTenant();
+  if (!t) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+  return NextResponse.json(await listWidgets(t));
 }
 
 export async function POST(req: Request) {
-  const s = await getSession();
-  if (!s) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+  const t = await resolveTenant();
+  if (!t) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   const body = (await req.json().catch(() => ({}))) as {
     name?: string;
     type?: string;
@@ -26,7 +27,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'name, type and workflowId are required' }, { status: 400 });
   }
   try {
-    const w = await createWidget(s.sub, {
+    requirePermission(t, 'widget.create');
+    assertWritable(t);
+    const w = await createWidget(t, {
       name: body.name.trim(),
       type: body.type,
       workflowId: body.workflowId,
@@ -36,6 +39,6 @@ export async function POST(req: Request) {
       ? NextResponse.json(w, { status: 201 })
       : NextResponse.json({ error: 'Invalid type or workflow.' }, { status: 400 });
   } catch (e) {
-    return limitErrorResponse(e) ?? NextResponse.json({ error: 'failed' }, { status: 500 });
+    return limitErrorResponse(e) ?? workspaceErrorResponse(e) ?? NextResponse.json({ error: 'failed' }, { status: 500 });
   }
 }

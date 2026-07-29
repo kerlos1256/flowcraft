@@ -19,7 +19,8 @@ export async function POST(req: Request) {
   if (!useCase || !useCase.templateSlug) return NextResponse.json({ workflowId: null });
 
   try {
-    const wf = await createWorkflowFromTemplate(s.sub, useCase.templateSlug);
+    // Onboarding always seeds a personal starter (new users have no workspace yet).
+    const wf = await createWorkflowFromTemplate({ kind: 'personal', userId: s.sub }, useCase.templateSlug);
     return NextResponse.json({ workflowId: wf?.id ?? null });
   } catch (e) {
     return limitErrorResponse(e) ?? NextResponse.json({ workflowId: null });

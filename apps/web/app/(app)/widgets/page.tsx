@@ -1,20 +1,21 @@
-import { getSession } from '@/lib/auth';
 import { listWidgets } from '@/lib/widget-data';
 import { listWorkflowTriggerInfo } from '@/lib/data';
 import { getUserPlan } from '@/lib/billing';
+import { planConfig } from '@/lib/plans';
+import { resolveTenant, scopeWhere } from '@/lib/workspace/tenant';
 import { prisma } from '@/lib/prisma';
 import { WidgetsClient } from '@/components/widgets/widgets-client';
 
 export const dynamic = 'force-dynamic';
 
 export default async function WidgetsPage() {
-  const s = (await getSession())!;
-  const [widgets, workflows, plan, count] = await Promise.all([
-    listWidgets(s.sub),
-    listWorkflowTriggerInfo(s.sub),
-    getUserPlan(s.sub),
-    prisma.widget.count({ where: { userId: s.sub } }),
+  const tenant = (await resolveTenant())!;
+  const [widgets, workflows, count] = await Promise.all([
+    listWidgets(tenant),
+    listWorkflowTriggerInfo(tenant),
+    prisma.widget.count({ where: scopeWhere(tenant) }),
   ]);
+  const plan = tenant.kind === 'workspace' ? planConfig('team') : await getUserPlan(tenant.userId);
 
   return (
     <div className="flex flex-col gap-6">

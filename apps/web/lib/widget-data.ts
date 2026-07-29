@@ -1,6 +1,8 @@
 import { prisma } from './prisma';
 import { runWorkflowByWebhook } from './data';
 import { assertCanCreateWidget, getUserPlan } from './billing';
+import { planConfig } from './plans';
+import { scopeWhere, createStamp, type Tenant } from './workspace/tenant';
 import {
   DEFAULT_THEME,
   defaultWidgetConfig,
@@ -13,9 +15,10 @@ import {
 } from './widgets';
 import type { WorkflowRunDto } from '@flowcraft/shared-types';
 
-/** Force config to plan entitlements: lock styling / branding on lower tiers. */
-async function sanitizeForPlan(userId: string, config: WidgetConfig): Promise<WidgetConfig> {
-  const plan = await getUserPlan(userId);
+/** Force config to plan entitlements: lock styling / branding on lower tiers.
+ *  A workspace is Team-backed, so it always gets full styling / no forced branding. */
+async function sanitizeForPlan(tenant: Tenant, config: WidgetConfig): Promise<WidgetConfig> {
+  const plan = tenant.kind === 'workspace' ? planConfig('team') : await getUserPlan(tenant.userId);
   return {
     ...config,
     theme: plan.customStyling ? config.theme : { ...DEFAULT_THEME },
@@ -23,18 +26,18 @@ async function sanitizeForPlan(userId: string, config: WidgetConfig): Promise<Wi
   };
 }
 
-export async function listWidgets(userId: string): Promise<WidgetSummary[]> {
+export async function listWidgets(tenant: Tenant): Promise<WidgetSummary[]> {
   const rows = await prisma.widget.findMany({
-    where: { userId },
+    where: scopeWhere(tenant),
     orderBy: { createdAt: 'desc' },
     include: { workflow: { select: { name: true } } },
   });
   return rows.map((r) => toSummary(r, r.workflow.name));
 }
 
-export async function getWidget(id: string, userId: string): Promise<WidgetFull | null> {
+export async function getWidget(id: string, tenant: Tenant): Promise<WidgetFull | null> {
   const r = await prisma.widget.findFirst({
-    where: { id, userId },
+    where: { id, ...scopeWhere(tenant) },
     include: { workflow: { select: { name: true } } },
   });
   if (!r) return null;
@@ -57,23 +60,30 @@ export async function getWidgetPublic(
 }
 
 export async function createWidget(
-  userId: string,
+  tenant: Tenant,
   input: { name: string; type: string; workflowId: string; placement?: WidgetPlacement },
 ): Promise<WidgetFull | null> {
   if (!isWidgetType(input.type)) return null;
   const owns = await prisma.workflow.findFirst({
-    where: { id: input.workflowId, userId },
+    where: { id: input.workflowId, ...scopeWhere(tenant) },
     select: { id: true },
   });
-  if (!owns) return null; // must link a workflow you own
-  await assertCanCreateWidget(userId); // throws LimitError → 402
+  if (!owns) return null; // must link a workflow in this tenant
+  if (tenant.kind === 'personal') await assertCanCreateWidget(tenant.userId); // → 402 (workspace: Phase 3)
 
   const base = defaultWidgetConfig(input.type);
-  const config = await sanitizeForPlan(userId, base);
+  const config = await sanitizeForPlan(tenant, base);
   const placement = input.placement ?? 'inline';
 
   const r = await prisma.widget.create({
-    data: { userId, workflowId: input.workflowId, name: input.name, type: input.type, placement, config: config as object },
+    data: {
+      ...createStamp(tenant),
+      workflowId: input.workflowId,
+      name: input.name,
+      type: input.type,
+      placement,
+      config: config as object,
+    },
     include: { workflow: { select: { name: true } } },
   });
   return { ...toSummary(r, r.workflow.name), config };
@@ -81,18 +91,18 @@ export async function createWidget(
 
 export async function updateWidget(
   id: string,
-  userId: string,
+  tenant: Tenant,
   patch: { name?: string; placement?: WidgetPlacement; config?: WidgetConfig; workflowId?: string },
 ): Promise<WidgetFull | null> {
-  const owned = await prisma.widget.findFirst({ where: { id, userId }, select: { id: true } });
+  const owned = await prisma.widget.findFirst({ where: { id, ...scopeWhere(tenant) }, select: { id: true } });
   if (!owned) return null;
 
   let config: object | undefined;
-  if (patch.config) config = (await sanitizeForPlan(userId, patch.config)) as object;
+  if (patch.config) config = (await sanitizeForPlan(tenant, patch.config)) as object;
 
-  // If re-linking, verify ownership of the new workflow.
+  // If re-linking, verify the new workflow is in the same tenant.
   if (patch.workflowId) {
-    const ok = await prisma.workflow.findFirst({ where: { id: patch.workflowId, userId }, select: { id: true } });
+    const ok = await prisma.workflow.findFirst({ where: { id: patch.workflowId, ...scopeWhere(tenant) }, select: { id: true } });
     if (!ok) return null;
   }
 
@@ -104,8 +114,8 @@ export async function updateWidget(
   return { ...toSummary(r, r.workflow.name), config: r.config as unknown as WidgetConfig };
 }
 
-export async function deleteWidget(id: string, userId: string): Promise<boolean> {
-  const owned = await prisma.widget.findFirst({ where: { id, userId }, select: { id: true } });
+export async function deleteWidget(id: string, tenant: Tenant): Promise<boolean> {
+  const owned = await prisma.widget.findFirst({ where: { id, ...scopeWhere(tenant) }, select: { id: true } });
   if (!owned) return false;
   await prisma.widget.delete({ where: { id } });
   return true;

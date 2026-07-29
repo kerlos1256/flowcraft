@@ -17,6 +17,7 @@ import { prisma } from './prisma';
 import { inngest } from './inngest/client';
 import { TEMPLATE_BY_SLUG } from './templates';
 import { assertCanCreateWorkflow, assertCanRun, assertCanSchedule } from './billing';
+import { scopeWhere, createStamp, type Tenant } from './workspace/tenant';
 
 // ── Users ────────────────────────────────────────────────────────────────────
 
@@ -38,8 +39,8 @@ export async function createUser(input: {
 
 // ── Reads (scoped to the owner) ──────────────────────────────────────────────
 
-export async function listWorkflows(userId: string): Promise<WorkflowSummaryDto[]> {
-  const rows = await prisma.workflow.findMany({ where: { userId }, orderBy: { updatedAt: 'desc' } });
+export async function listWorkflows(tenant: Tenant): Promise<WorkflowSummaryDto[]> {
+  const rows = await prisma.workflow.findMany({ where: scopeWhere(tenant), orderBy: { updatedAt: 'desc' } });
   return rows.map((r) => {
     const graph = r.graph as unknown as FlowGraph;
     return {
@@ -52,8 +53,8 @@ export async function listWorkflows(userId: string): Promise<WorkflowSummaryDto[
   });
 }
 
-export async function getWorkflow(id: string, userId: string): Promise<WorkflowDto | null> {
-  const r = await prisma.workflow.findFirst({ where: { id, userId } });
+export async function getWorkflow(id: string, tenant: Tenant): Promise<WorkflowDto | null> {
+  const r = await prisma.workflow.findFirst({ where: { id, ...scopeWhere(tenant) } });
   return r ? toWorkflowDto(r) : null;
 }
 
@@ -74,9 +75,9 @@ export function graphTriggerKind(graph: FlowGraph): TriggerKindInfo {
 }
 
 /** The user's workflows with their trigger kind (for the widget link picker). */
-export async function listWorkflowTriggerInfo(userId: string): Promise<WorkflowTriggerInfo[]> {
+export async function listWorkflowTriggerInfo(tenant: Tenant): Promise<WorkflowTriggerInfo[]> {
   const rows = await prisma.workflow.findMany({
-    where: { userId },
+    where: scopeWhere(tenant),
     orderBy: { updatedAt: 'desc' },
     select: { id: true, name: true, graph: true },
   });
@@ -87,18 +88,18 @@ export async function listWorkflowTriggerInfo(userId: string): Promise<WorkflowT
   }));
 }
 
-export async function listRuns(userId: string, workflowId?: string): Promise<WorkflowRunDto[]> {
+export async function listRuns(tenant: Tenant, workflowId?: string): Promise<WorkflowRunDto[]> {
   const rows = await prisma.workflowRun.findMany({
-    where: { workflow: { userId }, ...(workflowId ? { workflowId } : {}) },
+    where: { workflow: scopeWhere(tenant), ...(workflowId ? { workflowId } : {}) },
     orderBy: { startedAt: 'desc' },
     take: 100,
   });
   return rows.map(toRunDto);
 }
 
-export async function getRun(id: string, userId: string): Promise<RunDetailDto | null> {
+export async function getRun(id: string, tenant: Tenant): Promise<RunDetailDto | null> {
   const run = await prisma.workflowRun.findFirst({
-    where: { id, workflow: { userId } },
+    where: { id, workflow: scopeWhere(tenant) },
     include: {
       workflow: { select: { name: true, graph: true } },
       steps: { orderBy: { startedAt: 'asc' } },
@@ -115,36 +116,37 @@ export async function getRun(id: string, userId: string): Promise<RunDetailDto |
 
 // ── Writes (scoped to the owner) ─────────────────────────────────────────────
 
-export async function createWorkflow(userId: string, name: string): Promise<WorkflowDto> {
-  await assertCanCreateWorkflow(userId); // throws LimitError → 402
+export async function createWorkflow(tenant: Tenant, name: string): Promise<WorkflowDto> {
+  if (tenant.kind === 'personal') await assertCanCreateWorkflow(tenant.userId); // → 402
   const r = await prisma.workflow.create({
-    data: { userId, name, graph: emptyGraph() as object, status: 'draft' },
+    data: { ...createStamp(tenant), name, graph: emptyGraph() as object, status: 'draft' },
   });
   return toWorkflowDto(r);
 }
 
 export async function createWorkflowFromTemplate(
-  userId: string,
+  tenant: Tenant,
   slug: string,
 ): Promise<WorkflowDto | null> {
   const tpl = TEMPLATE_BY_SLUG[slug];
   if (!tpl) return null;
-  await assertCanCreateWorkflow(userId);
+  if (tenant.kind === 'personal') await assertCanCreateWorkflow(tenant.userId);
   const r = await prisma.workflow.create({
-    data: { userId, name: tpl.name, graph: tpl.graph as object, status: 'draft' },
+    data: { ...createStamp(tenant), name: tpl.name, graph: tpl.graph as object, status: 'draft' },
   });
   return toWorkflowDto(r);
 }
 
 export async function updateWorkflow(
   id: string,
-  userId: string,
+  tenant: Tenant,
   input: { name?: string; graph?: FlowGraph; status?: WorkflowStatus },
 ): Promise<WorkflowDto | null> {
-  const owned = await prisma.workflow.findFirst({ where: { id, userId }, select: { id: true } });
+  const owned = await prisma.workflow.findFirst({ where: { id, ...scopeWhere(tenant) }, select: { id: true } });
   if (!owned) return null;
-  // Activating a workflow enables its scheduled/cron trigger — gate on plan.
-  if (input.status === 'active') await assertCanSchedule(userId);
+  // Activating enables the scheduled/cron trigger. Personal is plan-gated; a
+  // workspace (Team) allows scheduling — permission is checked in the route.
+  if (input.status === 'active' && tenant.kind === 'personal') await assertCanSchedule(tenant.userId);
   const r = await prisma.workflow.update({
     where: { id },
     data: { name: input.name, graph: input.graph as object | undefined, status: input.status },
@@ -158,7 +160,7 @@ export async function updateWorkflow(
       .filter(Boolean);
     if (widgetIds.length) {
       await prisma.widget.updateMany({
-        where: { id: { in: widgetIds }, userId },
+        where: { id: { in: widgetIds }, ...scopeWhere(tenant) },
         data: { workflowId: id },
       });
     }
@@ -167,22 +169,22 @@ export async function updateWorkflow(
   return toWorkflowDto(r);
 }
 
-export async function deleteWorkflow(id: string, userId: string): Promise<boolean> {
-  const owned = await prisma.workflow.findFirst({ where: { id, userId }, select: { id: true } });
+export async function deleteWorkflow(id: string, tenant: Tenant): Promise<boolean> {
+  const owned = await prisma.workflow.findFirst({ where: { id, ...scopeWhere(tenant) }, select: { id: true } });
   if (!owned) return false;
   await prisma.workflow.delete({ where: { id } });
   return true;
 }
 
-/** Manual "Run Now" — requires ownership. */
+/** Manual "Run Now" — requires access in the current tenant. */
 export async function runWorkflow(
   id: string,
-  userId: string,
+  tenant: Tenant,
   payload: Record<string, unknown>,
 ): Promise<WorkflowRunDto | null> {
-  const owned = await prisma.workflow.findFirst({ where: { id, userId }, select: { id: true } });
+  const owned = await prisma.workflow.findFirst({ where: { id, ...scopeWhere(tenant) }, select: { id: true } });
   if (!owned) return null;
-  await assertCanRun(userId); // throws LimitError → 402
+  if (tenant.kind === 'personal') await assertCanRun(tenant.userId); // → 402 (workspace limits: Phase 3)
   return dispatchRun(id, 'manual', payload);
 }
 

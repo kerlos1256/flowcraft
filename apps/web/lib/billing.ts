@@ -1,6 +1,7 @@
 import { prisma } from './prisma';
 import { planConfig, type PlanConfig } from './plans';
 import { aiTokenCost, type AiModelId } from './ai/models';
+import type { Tenant } from './workspace/tenant';
 
 /** Thrown when an action exceeds the user's plan; surfaced as HTTP 402 + upgrade CTA. */
 export class LimitError extends Error {
@@ -34,11 +35,13 @@ export interface PlanUsage {
 
 /** The user's plan + current usage counters (workflows, runs this calendar month). */
 export async function getPlanAndUsage(userId: string): Promise<PlanUsage> {
+  // Personal usage only — workspace (shared) resources don't count against a
+  // user's personal Free/Pro limits.
   const [user, workflows, runsThisMonth] = await Promise.all([
     prisma.user.findUnique({ where: { id: userId }, select: { plan: true } }),
-    prisma.workflow.count({ where: { userId } }),
+    prisma.workflow.count({ where: { userId, workspaceId: null } }),
     prisma.workflowRun.count({
-      where: { workflow: { userId }, startedAt: { gte: startOfMonthUTC() } },
+      where: { workflow: { userId, workspaceId: null }, startedAt: { gte: startOfMonthUTC() } },
     }),
   ]);
   const planId = user?.plan ?? 'free';
@@ -80,7 +83,7 @@ export async function getUserPlan(userId: string): Promise<PlanConfig> {
 
 export async function assertCanCreateWidget(userId: string): Promise<void> {
   const plan = await getUserPlan(userId);
-  const widgets = await prisma.widget.count({ where: { userId } });
+  const widgets = await prisma.widget.count({ where: { userId, workspaceId: null } });
   if (widgets >= plan.maxWidgets) {
     throw new LimitError(
       `Your plan includes ${plan.maxWidgets} widget${plan.maxWidgets === 1 ? '' : 's'}. Upgrade to add more.`,
@@ -105,17 +108,39 @@ export interface AiUsage {
   allowOpus: boolean;
 }
 
-export async function getAiUsage(userId: string, workflowId?: string): Promise<AiUsage> {
-  const plan = await getUserPlan(userId);
+export async function getAiUsage(tenant: Tenant, workflowId?: string): Promise<AiUsage> {
+  // Workspace: a shared Team pool counted per workspace (flat allotment + top-ups = Phase 3).
+  if (tenant.kind === 'workspace') {
+    const plan = planConfig('team');
+    const windowStart = plan.aiTokenWindow === 'month' ? startOfMonthUTC() : undefined;
+    const usedAgg = await prisma.aiEdit.aggregate({
+      _sum: { tokenCost: true },
+      where: { workspaceId: tenant.workspaceId, ...(windowStart ? { createdAt: { gte: windowStart } } : {}) },
+    });
+    const used = usedAgg._sum.tokenCost ?? 0;
+    return {
+      planId: 'team',
+      window: plan.aiTokenWindow,
+      tokens: plan.aiTokens,
+      used,
+      remaining: Math.max(0, plan.aiTokens - used),
+      perWorkflowLimit: null,
+      perWorkflowUsed: 0,
+      allowOpus: plan.aiOpus,
+    };
+  }
+
+  // Personal: the user's own plan, counted over their personal (workspaceId null) edits.
+  const plan = await getUserPlan(tenant.userId);
   const windowStart = plan.aiTokenWindow === 'month' ? startOfMonthUTC() : undefined;
   const [usedAgg, perWfAgg] = await Promise.all([
     prisma.aiEdit.aggregate({
       _sum: { tokenCost: true },
-      where: { userId, ...(windowStart ? { createdAt: { gte: windowStart } } : {}) },
+      where: { userId: tenant.userId, workspaceId: null, ...(windowStart ? { createdAt: { gte: windowStart } } : {}) },
     }),
     // Per-workflow cap is lifetime (a workflow gets its one free build ever).
     workflowId
-      ? prisma.aiEdit.aggregate({ _sum: { tokenCost: true }, where: { userId, workflowId } })
+      ? prisma.aiEdit.aggregate({ _sum: { tokenCost: true }, where: { userId: tenant.userId, workspaceId: null, workflowId } })
       : Promise.resolve(null),
   ]);
   const used = usedAgg._sum.tokenCost ?? 0;
@@ -132,9 +157,9 @@ export async function getAiUsage(userId: string, workflowId?: string): Promise<A
   };
 }
 
-export async function assertCanUseAi(userId: string, workflowId: string, model: AiModelId): Promise<void> {
+export async function assertCanUseAi(tenant: Tenant, workflowId: string, model: AiModelId): Promise<void> {
   const cost = aiTokenCost(model);
-  const u = await getAiUsage(userId, workflowId);
+  const u = await getAiUsage(tenant, workflowId);
   if (model === 'opus' && !u.allowOpus) {
     throw new LimitError('The Opus model is available on paid plans — switch to Sonnet, or upgrade to use Opus.', 'ai_opus_locked');
   }

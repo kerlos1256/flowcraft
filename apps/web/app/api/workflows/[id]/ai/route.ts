@@ -1,10 +1,11 @@
 import { NextResponse } from 'next/server';
-import { getSession } from '@/lib/auth';
 import { getWorkflow } from '@/lib/data';
 import { listWidgets } from '@/lib/widget-data';
 import { prisma } from '@/lib/prisma';
 import { assertCanUseAi, getAiUsage } from '@/lib/billing';
 import { limitErrorResponse } from '@/lib/api-errors';
+import { resolveTenant, requirePermission, assertWritable, createStamp } from '@/lib/workspace/tenant';
+import { workspaceErrorResponse } from '@/lib/workspace/http';
 import { aiConfigured } from '@/lib/ai/client';
 import { aiTokenCost, isAiModelId } from '@/lib/ai/models';
 import { runAiEdit, checkRateLimit, RateLimitError, MAX_INPUT_CHARS } from '@/lib/ai';
@@ -16,14 +17,14 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 export async function POST(req: Request, { params }: { params: { id: string } }) {
-  const s = await getSession();
-  if (!s) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+  const t = await resolveTenant();
+  if (!t) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
 
   if (!aiConfigured()) {
     return NextResponse.json({ error: 'The AI assistant is not configured on this server.' }, { status: 503 });
   }
 
-  const wf = await getWorkflow(params.id, s.sub);
+  const wf = await getWorkflow(params.id, t);
   if (!wf) return NextResponse.json({ error: 'not found' }, { status: 404 });
 
   const body = (await req.json().catch(() => ({}))) as {
@@ -39,11 +40,12 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   const model = isAiModelId(body.model) ? body.model : 'sonnet';
 
   try {
-    checkRateLimit(s.sub);
-    await assertCanUseAi(s.sub, params.id, model); // → 402 on limit
+    requirePermission(t, 'ai.use');
+    assertWritable(t);
+    checkRateLimit(t.userId);
+    await assertCanUseAi(t, params.id, model); // → 402 on limit
 
-    // The user's own widgets — offered to the model and enforced on apply.
-    const widgets = await listWidgets(s.sub);
+    const widgets = await listWidgets(t);
     const result = await runAiEdit({
       graph: wf.graph,
       message,
@@ -52,11 +54,11 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       widgets: widgets.map((w) => ({ id: w.id, name: w.name, type: w.type })),
     });
 
-    // Consume quota only on a real edit — refusals and no-ops cost the user nothing.
+    // Consume quota only on a real edit; stamp the tenant (userId + workspaceId).
     if (!result.refused) {
       await prisma.aiEdit.create({
         data: {
-          userId: s.sub,
+          ...createStamp(t),
           workflowId: params.id,
           model,
           tokenCost: aiTokenCost(model),
@@ -67,7 +69,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       });
     }
 
-    const usage = await getAiUsage(s.sub, params.id);
+    const usage = await getAiUsage(t, params.id);
     const payload: AiEditResult = {
       reply: result.reply,
       refused: result.refused,
@@ -79,6 +81,8 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   } catch (e) {
     const limit = limitErrorResponse(e);
     if (limit) return limit;
+    const wsErr = workspaceErrorResponse(e);
+    if (wsErr) return wsErr;
     if (e instanceof RateLimitError) return NextResponse.json({ error: e.message }, { status: 429 });
     if (e instanceof AiOpError) return NextResponse.json({ error: e.message }, { status: 422 });
     console.error('AI edit failed', e);

@@ -80,6 +80,22 @@ export async function resolveTenant(): Promise<Tenant | null> {
   };
 }
 
+/**
+ * Prisma `where` fragment that scopes a resource query to the tenant:
+ * personal → the user's own personal rows (workspaceId null); workspace → all rows
+ * of the workspace (shared, regardless of which member created them).
+ */
+export function scopeWhere(tenant: Tenant): { userId: string; workspaceId: null } | { workspaceId: string } {
+  return tenant.kind === 'workspace'
+    ? { workspaceId: tenant.workspaceId }
+    : { userId: tenant.userId, workspaceId: null };
+}
+
+/** The (userId, workspaceId) to stamp on a newly-created resource. */
+export function createStamp(tenant: Tenant): { userId: string; workspaceId: string | null } {
+  return { userId: tenant.userId, workspaceId: tenant.kind === 'workspace' ? tenant.workspaceId : null };
+}
+
 /** True when the tenant may perform an action. Personal = full control over own data. */
 export function can(tenant: Tenant, perm: Permission): boolean {
   if (tenant.kind === 'personal') return true;
