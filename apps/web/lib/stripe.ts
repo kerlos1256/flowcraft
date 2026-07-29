@@ -22,6 +22,9 @@ export function priceIdFor(plan: PlanId): string | null {
   return process.env[cfg.stripePriceEnv] ?? null;
 }
 
+/** The Stripe Price id for an extra workspace seat ($12/mo), or null if unset. */
+export const seatPriceId = (): string | null => process.env.STRIPE_PRICE_SEAT ?? null;
+
 /** Reverse map a Stripe Price id back to our plan id. */
 export function planForPriceId(priceId: string | undefined): PlanId | null {
   if (!priceId) return null;

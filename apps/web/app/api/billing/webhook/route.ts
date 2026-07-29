@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import type Stripe from 'stripe';
 import { prisma } from '@/lib/prisma';
 import { stripe, planForPriceId } from '@/lib/stripe';
+import { upsertSeatFromSubscription, type SeatStatus } from '@/lib/workspace/seats';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -26,14 +27,14 @@ export async function POST(req: Request) {
         const session = event.data.object as Stripe.Checkout.Session;
         if (session.subscription) {
           const sub = await stripe().subscriptions.retrieve(String(session.subscription));
-          await syncSubscription(sub);
+          await onSubscription(sub);
         }
         break;
       }
       case 'customer.subscription.created':
       case 'customer.subscription.updated':
       case 'customer.subscription.deleted': {
-        await syncSubscription(event.data.object as Stripe.Subscription);
+        await onSubscription(event.data.object as Stripe.Subscription);
         break;
       }
     }
@@ -43,6 +44,21 @@ export async function POST(req: Request) {
   }
 
   return NextResponse.json({ received: true });
+}
+
+/** Route a subscription to seat-sync (workspace extra seat) or plan-sync (user plan). */
+async function onSubscription(sub: Stripe.Subscription): Promise<void> {
+  if (sub.metadata?.kind === 'seat') {
+    const status: SeatStatus =
+      sub.status === 'canceled' || sub.status === 'incomplete_expired'
+        ? 'canceled'
+        : sub.status === 'past_due' || sub.status === 'unpaid'
+          ? 'past_due'
+          : 'active';
+    await upsertSeatFromSubscription(sub.metadata.workspaceId, sub.id, status);
+    return;
+  }
+  await syncSubscription(sub);
 }
 
 async function syncSubscription(sub: Stripe.Subscription): Promise<void> {

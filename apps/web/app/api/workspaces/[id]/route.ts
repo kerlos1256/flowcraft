@@ -1,15 +1,8 @@
 import { NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
-import {
-  getMembership,
-  listMembers,
-  listInvites,
-  availableSeats,
-  renameWorkspace,
-  deleteWorkspace,
-  BASE_SEATS,
-} from '@/lib/workspace/data';
+import { getMembership, listMembers, listInvites, renameWorkspace, deleteWorkspace } from '@/lib/workspace/data';
+import { availableSeats, listSeats, seatCount, ensureBaseSeats, BASE_SEATS, MAX_SEATS } from '@/lib/workspace/seats';
 import { membershipCan } from '@/lib/workspace/permissions';
 import { setActiveWorkspaceCookie } from '@/lib/workspace/tenant';
 import { workspaceErrorResponse } from '@/lib/workspace/http';
@@ -34,12 +27,24 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
   });
   if (!ws) return NextResponse.json({ error: 'not found' }, { status: 404 });
 
-  const [members, invites, seatsLeft] = await Promise.all([
-    listMembers(params.id),
+  const members = await listMembers(params.id);
+  const owner = members.find((m) => m.isOwner);
+  if (owner) await ensureBaseSeats(params.id, owner.id); // backfill for pre-seat workspaces
+
+  const [invites, seatsLeft, seatList, total] = await Promise.all([
     listInvites(params.id),
     availableSeats(params.id),
+    listSeats(params.id),
+    seatCount(params.id),
   ]);
-  return NextResponse.json({ workspace: ws, me, members, invites, seats: { base: BASE_SEATS, available: seatsLeft } });
+  return NextResponse.json({
+    workspace: ws,
+    me,
+    members,
+    invites,
+    seats: { base: BASE_SEATS, available: seatsLeft, total, max: MAX_SEATS },
+    seatList,
+  });
 }
 
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {

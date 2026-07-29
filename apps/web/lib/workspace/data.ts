@@ -7,9 +7,10 @@ import 'server-only';
 import { randomBytes, createHash } from 'crypto';
 import { prisma } from '@/lib/prisma';
 import { cleanPermissions, type Permission } from './permissions';
+import { provisionBaseSeats, assignFreeSeat, availableSeats } from './seats';
 
-/** Seats included in the Team base plan (owner + 1). Extra seats = Phase 2. */
-export const BASE_SEATS = 2;
+// Seat accounting lives in ./seats; re-exported so existing importers keep working.
+export { BASE_SEATS, availableSeats } from './seats';
 
 export class WorkspaceError extends Error {
   constructor(
@@ -53,7 +54,7 @@ export async function createWorkspace(userId: string, name: string) {
   if (existing) throw new WorkspaceError('You already own a workspace.', 'already_owns');
 
   const clean = name.trim().slice(0, 60) || 'My Workspace';
-  return prisma.workspace.create({
+  const ws = await prisma.workspace.create({
     data: {
       name: clean,
       slug: slugify(clean),
@@ -62,7 +63,10 @@ export async function createWorkspace(userId: string, name: string) {
         create: { userId, displayName: user?.name || 'Owner', isOwner: true, permissions: [], status: 'active' },
       },
     },
+    include: { memberships: true },
   });
+  await provisionBaseSeats(ws.id, ws.memberships[0].id); // 2 base seats; owner takes one
+  return ws;
 }
 
 /** Workspaces the user belongs to (for the switcher). */
@@ -173,15 +177,6 @@ export async function leaveWorkspace(workspaceId: string, userId: string) {
 }
 
 // ── Invites ───────────────────────────────────────────────────────────────────
-
-/** Seats left = base seats − active members − pending invites (each reserves a seat). */
-export async function availableSeats(workspaceId: string): Promise<number> {
-  const [members, pending] = await Promise.all([
-    prisma.membership.count({ where: { workspaceId, status: 'active' } }),
-    prisma.workspaceInvite.count({ where: { workspaceId, status: 'pending' } }),
-  ]);
-  return BASE_SEATS - members - pending;
-}
 
 export interface CreatedInvite {
   id: string;
@@ -302,7 +297,7 @@ export async function acceptInvite(rawToken: string, userId: string, displayName
   }
 
   const name = displayName.trim().slice(0, 60) || user.name || 'Member';
-  await prisma.$transaction([
+  const [membership] = await prisma.$transaction([
     prisma.membership.create({
       data: {
         workspaceId: invite.workspaceId,
@@ -315,5 +310,6 @@ export async function acceptInvite(rawToken: string, userId: string, displayName
     }),
     prisma.workspaceInvite.update({ where: { id: invite.id }, data: { status: 'accepted' } }),
   ]);
+  await assignFreeSeat(invite.workspaceId, membership.id); // take a free seat
   return invite.workspaceId;
 }

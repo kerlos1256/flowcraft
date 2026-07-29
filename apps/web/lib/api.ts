@@ -104,12 +104,21 @@ export interface WorkspaceInviteItem {
   expiresAt: string;
   createdAt: string;
 }
+export interface WorkspaceSeatInfo {
+  id: string;
+  kind: 'base' | 'extra';
+  status: string;
+  assignedMembershipId: string | null;
+  assignedName: string | null;
+  subscriptionId: string | null;
+}
 export interface WorkspaceDetail {
   workspace: { id: string; name: string; status: string; ownerUserId: string };
   me: { id: string; userId: string; displayName: string; isOwner: boolean; status: string; permissions: Permission[] };
   members: WorkspaceMember[];
   invites: WorkspaceInviteItem[];
-  seats: { base: number; available: number };
+  seats: { base: number; available: number; total: number; max: number };
+  seatList: WorkspaceSeatInfo[];
 }
 
 export const listWorkspaces = () => req<WorkspaceListItem[]>('/workspaces');
@@ -141,6 +150,10 @@ export const acceptInviteApi = (token: string, displayName: string) =>
     method: 'POST',
     body: JSON.stringify({ displayName }),
   });
+export const buySeatApi = (wid: string) =>
+  req<{ url: string }>(`/workspaces/${wid}/seats/checkout`, { method: 'POST' });
+export const releaseSeatApi = (wid: string, seatId: string) =>
+  req<{ releasing?: boolean }>(`/workspaces/${wid}/seats/${seatId}`, { method: 'DELETE' });
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 interface AuthUser {

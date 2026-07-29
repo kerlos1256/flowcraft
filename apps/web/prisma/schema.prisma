@@ -52,12 +52,33 @@ model Workspace {
   owner       User              @relation("WorkspaceOwner", fields: [ownerUserId], references: [id], onDelete: Cascade)
   memberships Membership[]
   invites     WorkspaceInvite[]
+  seats       WorkspaceSeat[]
   workflows   Workflow[]
   widgets     Widget[]
   aiEdits     AiEdit[]
 
   @@index([ownerUserId])
   @@map("workspaces")
+}
+
+// A seat = one member slot. The 2 `base` seats come with the Team plan; each
+// `extra` seat is its OWN $12/mo Stripe subscription (so one failed invoice can
+// deactivate exactly one seat). Pre-buy-then-assign: a seat can be paid but
+// unassigned, then attached to a membership.
+model WorkspaceSeat {
+  id                   String   @id @default(uuid()) @db.Uuid
+  workspaceId          String   @map("workspace_id") @db.Uuid
+  kind                 String   @default("extra") // base | extra
+  stripeSubscriptionId String?  @unique @map("stripe_subscription_id")
+  status               String   @default("active") // active | past_due | canceled
+  assignedMembershipId String?  @unique @map("assigned_membership_id") @db.Uuid
+  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  workspace          Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  assignedMembership Membership? @relation(fields: [assignedMembershipId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId])
+  @@map("workspace_seats")
 }
 
 // A user's identity + permission set within one workspace (the "specific user entity
@@ -73,8 +94,9 @@ model Membership {
   status      String   @default("active") // active | deactivated (unpaid seat)
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  seat      WorkspaceSeat?
 
   @@unique([workspaceId, userId])
   @@index([userId])

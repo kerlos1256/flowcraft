@@ -12,6 +12,8 @@ import {
   removeMemberApi,
   leaveWorkspaceApi,
   switchWorkspaceApi,
+  buySeatApi,
+  releaseSeatApi,
   startCheckout,
   type WorkspaceDetail,
   type WorkspaceListItem,
@@ -125,7 +127,7 @@ function CreateWorkspace({ defaultName }: { defaultName: string }) {
 }
 
 // ── Manage an existing workspace ────────────────────────────────────────────────
-type Tab = 'members' | 'invites' | 'settings';
+type Tab = 'members' | 'invites' | 'seats' | 'settings';
 
 function Manage({ initial }: { initial: WorkspaceDetail }) {
   const [data, setData] = useState<WorkspaceDetail>(initial);
@@ -142,6 +144,7 @@ function Manage({ initial }: { initial: WorkspaceDetail }) {
   const tabs: { id: Tab; label: string }[] = [
     { id: 'members', label: `Members (${data.members.length})` },
     { id: 'invites', label: `Invites (${data.invites.length})` },
+    { id: 'seats', label: `Seats (${data.seats.total})` },
     { id: 'settings', label: 'Settings' },
   ];
 
@@ -177,6 +180,7 @@ function Manage({ initial }: { initial: WorkspaceDetail }) {
       <div className="p-5">
         {tab === 'members' && <MembersTab data={data} onChange={refresh} />}
         {tab === 'invites' && <InvitesTab data={data} onChange={refresh} />}
+        {tab === 'seats' && <SeatsTab data={data} onChange={refresh} />}
         {tab === 'settings' && <SettingsTab data={data} />}
       </div>
     </div>
@@ -479,6 +483,86 @@ function SettingsTab({ data }: { data: WorkspaceDetail }) {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// ── Seats & billing ─────────────────────────────────────────────────────────────
+function SeatsTab({ data, onChange }: { data: WorkspaceDetail; onChange: () => void }) {
+  const canBill = membershipCan(data.me, 'workspace.billing'); // owner-only
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function buy() {
+    setBusy(true);
+    setErr(null);
+    try {
+      const { url } = await buySeatApi(data.workspace.id);
+      window.location.href = url;
+    } catch (e) {
+      setErr((e as Error).message);
+      setBusy(false);
+    }
+  }
+  async function release(seatId: string) {
+    if (!confirm('Release this seat? Its subscription cancels at the end of the billing period.')) return;
+    try {
+      await releaseSeatApi(data.workspace.id, seatId);
+      onChange();
+    } catch (e) {
+      alert((e as Error).message);
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="rounded-lg border border-border p-4">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold">
+              {data.seats.total} seat{data.seats.total === 1 ? '' : 's'} · {data.seats.available} free
+            </p>
+            <p className="text-xs text-muted">
+              Your Team plan includes {data.seats.base} seats. Extra seats are <b>$12/mo</b> each (up to {data.seats.max}).
+            </p>
+          </div>
+          {canBill && (
+            <button className="btn btn-primary shrink-0" onClick={buy} disabled={busy || data.seats.total >= data.seats.max}>
+              {busy ? 'Redirecting…' : '+ Buy a seat'}
+            </button>
+          )}
+        </div>
+        {err && <p className="mt-2 text-sm text-red-500">{err}</p>}
+      </div>
+
+      <div className="flex flex-col gap-2">
+        {data.seatList.map((seat) => (
+          <div key={seat.id} className="flex items-center gap-3 rounded-lg border border-border p-3 text-sm">
+            <span>💺</span>
+            <div className="min-w-0">
+              <div className="font-medium">{seat.assignedName ?? <span className="text-muted">Empty seat</span>}</div>
+              <div className="text-xs text-muted">
+                {seat.kind === 'base' ? 'Base seat' : 'Extra seat · $12/mo'}
+              </div>
+            </div>
+            <div className="ml-auto flex items-center gap-2">
+              {seat.status === 'past_due' && (
+                <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] text-amber-600">Unpaid</span>
+              )}
+              {canBill && seat.kind === 'extra' && !seat.assignedMembershipId && (
+                <button className="btn btn-sm" onClick={() => release(seat.id)}>
+                  Release
+                </button>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <p className="text-[11px] text-muted">
+        Buying a seat opens Stripe Checkout; the seat appears here once payment completes. To free an occupied seat, remove
+        that member on the Members tab. An unpaid seat deactivates its member until payment is fixed.
+      </p>
     </div>
   );
 }
