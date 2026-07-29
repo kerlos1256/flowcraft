@@ -33,6 +33,7 @@ ${catalog()}
 
 RULES:
 - A workflow must have exactly ONE trigger node (manual_trigger / webhook_trigger / widget_trigger). Don't add a second trigger; reuse the existing one.
+- widget_trigger starts the flow from one of the user's embedded widgets. Only add one when the request comes with a non-empty AVAILABLE WIDGETS list, and set its config to {"widgetId":"<id from that list>","widgetName":"<its name>"}. Never invent a widget id; if no suitable widget exists, refuse or suggest another trigger.
 - Reference EXISTING nodes by the "id" shown in the graph. For nodes you create, invent a short "tempId" (e.g. "n1") and reference it in later ops.
 - Never set positions — they're assigned automatically. Use "after" (an id or tempId) on add_node to place + auto-connect a node after another.
 - Only use config keys from the catalog for that node type. Omit config you don't know; the app fills defaults.

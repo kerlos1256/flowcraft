@@ -181,18 +181,30 @@ export function AiAssistant({ workflowId, usage: initialUsage, onApply }: AiAssi
             const locked = id === 'opus' && !usage.allowOpus;
             const active = model === id;
             return (
-              <button
-                key={id}
-                onClick={() => !locked && setModel(id)}
-                disabled={locked}
-                title={locked ? 'Opus is available on paid plans' : info.blurb}
-                className={`rounded-md border px-2 py-1 text-[11px] ${
-                  active ? 'text-white' : 'text-muted'
-                } ${locked ? 'cursor-not-allowed opacity-50' : ''}`}
-                style={active ? { background: 'var(--ai-accent)', borderColor: 'transparent' } : { borderColor: 'var(--border)' }}
-              >
-                {info.label} · {info.tokenCost}🪙{locked ? ' 🔒' : ''}
-              </button>
+              <span key={id} className="fc-tip">
+                <button
+                  onClick={() => !locked && setModel(id)}
+                  aria-disabled={locked}
+                  className={`rounded-md border px-2 py-1 text-[11px] ${
+                    active ? 'text-white' : 'text-muted'
+                  } ${locked ? 'cursor-not-allowed opacity-60' : ''}`}
+                  style={
+                    active ? { background: 'var(--ai-accent)', borderColor: 'transparent' } : { borderColor: 'var(--border)' }
+                  }
+                >
+                  {info.label} · {info.tokenCost}🪙{locked ? ' 🔒' : ''}
+                </button>
+                <span className="fc-tip__pop" role="tooltip">
+                  {locked ? (
+                    <>
+                      <strong style={{ color: 'var(--ai-accent)' }}>Paid plans only.</strong> Opus (2 tokens) unlocks on
+                      Pro & Team — you’re on Sonnet.
+                    </>
+                  ) : (
+                    info.blurb
+                  )}
+                </span>
+              </span>
             );
           })}
         </div>

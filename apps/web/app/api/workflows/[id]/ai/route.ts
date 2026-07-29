@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { getWorkflow } from '@/lib/data';
+import { listWidgets } from '@/lib/widget-data';
 import { prisma } from '@/lib/prisma';
 import { assertCanUseAi, getAiUsage } from '@/lib/billing';
 import { limitErrorResponse } from '@/lib/api-errors';
@@ -41,7 +42,15 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     checkRateLimit(s.sub);
     await assertCanUseAi(s.sub, params.id, model); // → 402 on limit
 
-    const result = await runAiEdit({ graph: wf.graph, message, model, history: body.history });
+    // The user's own widgets — offered to the model and enforced on apply.
+    const widgets = await listWidgets(s.sub);
+    const result = await runAiEdit({
+      graph: wf.graph,
+      message,
+      model,
+      history: body.history,
+      widgets: widgets.map((w) => ({ id: w.id, name: w.name, type: w.type })),
+    });
 
     // Consume quota only on a real edit — refusals and no-ops cost the user nothing.
     if (!result.refused) {

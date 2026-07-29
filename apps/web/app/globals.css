@@ -134,6 +134,53 @@ body {
   }
 }
 
+/* Custom hover/focus tooltip (replaces the native title bubble) */
+.fc-tip {
+  position: relative;
+  display: inline-flex;
+}
+.fc-tip__pop {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  z-index: 50;
+  width: max-content;
+  max-width: 190px;
+  padding: 6px 9px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--fg);
+  box-shadow: var(--shadow-md);
+  font-size: 11px;
+  line-height: 1.35;
+  text-align: left;
+  opacity: 0;
+  transform: translateY(4px);
+  pointer-events: none;
+  transition:
+    opacity 120ms ease,
+    transform 120ms ease;
+}
+.fc-tip__pop::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 16px;
+  border: 5px solid transparent;
+  border-top-color: var(--surface);
+}
+.fc-tip:hover .fc-tip__pop,
+.fc-tip:focus-within .fc-tip__pop {
+  opacity: 1;
+  transform: translateY(0);
+}
+@media (prefers-reduced-motion: reduce) {
+  .fc-tip__pop {
+    transition: none;
+  }
+}
+
 @keyframes fc-slide-in {
   from {
     opacity: 0;

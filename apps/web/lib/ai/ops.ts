@@ -61,6 +61,15 @@ export interface ApplyResult {
   changedNodeIds: string[];
 }
 
+/** The user's own widgets the AI may attach as widget_trigger nodes. */
+export interface AiWidgetRef {
+  id: string;
+  name: string;
+}
+export interface ApplyOptions {
+  widgets?: AiWidgetRef[];
+}
+
 const uuid = () => globalThis.crypto.randomUUID();
 
 /** Keep only known config keys for a node type; coerce number fields. */
@@ -77,16 +86,39 @@ function sanitizeConfig(type: NodeType, raw: Record<string, unknown> | undefined
 }
 
 /**
+ * widget_trigger has no config schema — its config is {widgetId, widgetName}
+ * referencing one of the USER'S OWN widgets. Validate the id against that set
+ * (tenant isolation — the AI can never attach a widget the user doesn't own)
+ * and take the authoritative name from the server-side record.
+ */
+function widgetTriggerConfig(
+  raw: Record<string, unknown> | undefined,
+  widgetById: Map<string, AiWidgetRef>,
+): Record<string, unknown> {
+  const id = raw && raw.widgetId != null ? String(raw.widgetId) : '';
+  const w = id ? widgetById.get(id) : undefined;
+  if (!w) {
+    throw new AiOpError(
+      id
+        ? `Widget "${id}" isn't one of your widgets — pick one from your available widgets.`
+        : 'A widget trigger needs one of your widgets, and none was available or specified.',
+    );
+  }
+  return { widgetId: w.id, widgetName: w.name };
+}
+
+/**
  * Apply the model's ops to a copy of `graph`. Throws AiOpError on any invalid
  * reference or unknown type — the route turns that into a soft chat error
  * (no quota spent), never a corrupted graph.
  */
-export function applyOps(graph: FlowGraph, ops: AiOp[]): ApplyResult {
+export function applyOps(graph: FlowGraph, ops: AiOp[], options: ApplyOptions = {}): ApplyResult {
   if (!Array.isArray(ops)) throw new AiOpError('The assistant returned no valid operations.');
 
   const nodes: FlowNode[] = (graph.nodes ?? []).map((n) => ({ ...n, data: { ...n.data, config: { ...n.data.config } } }));
   let edges: FlowEdge[] = [...(graph.edges ?? [])];
   const byId = new Map(nodes.map((n) => [n.id, n]));
+  const widgetById = new Map((options.widgets ?? []).map((w) => [w.id, w]));
   const temp = new Map<string, string>(); // tempId → real id
   const changed = new Set<string>();
 
@@ -106,6 +138,10 @@ export function applyOps(graph: FlowGraph, ops: AiOp[]): ApplyResult {
         const tpl = NODE_TEMPLATE_BY_TYPE[type];
         const id = uuid();
         const position = positionFor(op.after, temp, byId, nodes.length);
+        const config =
+          type === 'widget_trigger'
+            ? widgetTriggerConfig(op.config, widgetById)
+            : { ...defaultConfigFor(type), ...sanitizeConfig(type, op.config) };
         const node: FlowNode = {
           id,
           type: 'flowNode',
@@ -113,7 +149,7 @@ export function applyOps(graph: FlowGraph, ops: AiOp[]): ApplyResult {
           data: {
             type,
             label: (op.label ?? tpl.label).toString().slice(0, 80),
-            config: { ...defaultConfigFor(type), ...sanitizeConfig(type, op.config) },
+            config,
           },
         };
         nodes.push(node);
@@ -131,7 +167,14 @@ export function applyOps(graph: FlowGraph, ops: AiOp[]): ApplyResult {
         const id = resolve(op.nodeId);
         const node = byId.get(id)!;
         if (typeof op.label === 'string') node.data.label = op.label.slice(0, 80);
-        if (op.config) node.data.config = { ...node.data.config, ...sanitizeConfig(node.data.type, op.config) };
+        if (op.config) {
+          if (node.data.type === 'widget_trigger') {
+            // Only re-point the widget if a widgetId was given; otherwise leave it.
+            if (op.config.widgetId != null) node.data.config = widgetTriggerConfig(op.config, widgetById);
+          } else {
+            node.data.config = { ...node.data.config, ...sanitizeConfig(node.data.type, op.config) };
+          }
+        }
         changed.add(id);
         break;
       }

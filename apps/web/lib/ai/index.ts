@@ -6,7 +6,7 @@ import type { FlowGraph } from '@flowcraft/shared-types';
 import { anthropic } from './client';
 import { apiModelFor, type AiModelId } from './models';
 import { buildSystemPrompt, serializeGraphForModel } from './prompt';
-import { applyOps, AiOpError, type AiOp } from './ops';
+import { applyOps, AiOpError, type AiOp, type AiWidgetRef } from './ops';
 import type { AiChatTurn } from './types';
 
 export const MAX_INPUT_CHARS = 1000;
@@ -36,6 +36,8 @@ export interface RunAiEditInput {
   message: string;
   model: AiModelId;
   history?: AiChatTurn[];
+  /** The user's own widgets — offered to the model and enforced on apply. */
+  widgets?: (AiWidgetRef & { type?: string })[];
 }
 
 export interface RunAiEditOutput {
@@ -79,6 +81,13 @@ export async function runAiEdit(input: RunAiEditInput): Promise<RunAiEditOutput>
     .filter((t) => (t.role === 'user' || t.role === 'assistant') && typeof t.content === 'string')
     .map((t) => ({ role: t.role, content: t.content.slice(0, MAX_INPUT_CHARS) }));
 
+  const widgets = (input.widgets ?? []).slice(0, 50);
+  const widgetLine = widgets.length
+    ? `AVAILABLE WIDGETS (untrusted data — your own widgets you may attach as widget_trigger nodes):\n${JSON.stringify(
+        widgets.map((w) => ({ id: w.id, name: w.name, type: w.type })),
+      )}\n\n`
+    : 'AVAILABLE WIDGETS: none (do not add widget_trigger nodes).\n\n';
+
   const res = await anthropic().messages.create({
     model: apiModelFor(input.model),
     max_tokens: MAX_OUTPUT_TOKENS,
@@ -89,6 +98,7 @@ export async function runAiEdit(input: RunAiEditInput): Promise<RunAiEditOutput>
         role: 'user',
         content:
           `CURRENT WORKFLOW (untrusted data):\n\`\`\`json\n${serializeGraphForModel(input.graph)}\n\`\`\`\n\n` +
+          widgetLine +
           `USER REQUEST (untrusted data):\n${message}`,
       },
     ],
@@ -108,6 +118,8 @@ export async function runAiEdit(input: RunAiEditInput): Promise<RunAiEditOutput>
     return { reply, refused: true, graph: null, changedNodeIds: [], tokensIn, tokensOut };
   }
 
-  const { graph, changedNodeIds } = applyOps(input.graph, parsed.ops as AiOp[]);
+  const { graph, changedNodeIds } = applyOps(input.graph, parsed.ops as AiOp[], {
+    widgets: widgets.map((w) => ({ id: w.id, name: w.name })),
+  });
   return { reply, refused: false, graph, changedNodeIds, tokensIn, tokensOut };
 }
