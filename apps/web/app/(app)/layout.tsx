@@ -2,13 +2,19 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { appConfig } from '@/config/app.config';
 import { getSession } from '@/lib/auth';
+import { listMyWorkspaces } from '@/lib/workspace/data';
+import { resolveTenant } from '@/lib/workspace/tenant';
 import { UserMenu } from '@/components/user-menu';
+import { WorkspaceSwitcher } from '@/components/workspace/workspace-switcher';
 
 export const dynamic = 'force-dynamic';
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const session = await getSession();
   if (!session) redirect('/login');
+
+  const [workspaces, tenant] = await Promise.all([listMyWorkspaces(session.sub), resolveTenant()]);
+  const activeId = tenant?.kind === 'workspace' ? tenant.workspaceId : null;
 
   return (
     <>
@@ -25,8 +31,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             <Link href="/widgets" className="text-sm text-muted hover:text-foreground">
               Widgets
             </Link>
+            <Link href="/workspace" className="text-sm text-muted hover:text-foreground">
+              Workspace
+            </Link>
           </nav>
-          <div className="ml-auto">
+          <div className="ml-auto flex items-center gap-3">
+            <WorkspaceSwitcher workspaces={workspaces} activeId={activeId} />
             <UserMenu name={session.name} email={session.email} />
           </div>
         </div>

@@ -79,6 +79,69 @@ export const updateWidgetApi = (
 
 export const deleteWidgetApi = (id: string) => req<void>(`/widgets/${id}`, { method: 'DELETE' });
 
+// ── Workspaces ──────────────────────────────────────────────────────────────────
+import type { Permission } from '@/lib/workspace/permissions';
+
+export interface WorkspaceListItem {
+  id: string;
+  name: string;
+  status: string;
+  isOwner: boolean;
+}
+export interface WorkspaceMember {
+  id: string;
+  userId: string;
+  email: string;
+  displayName: string;
+  isOwner: boolean;
+  status: string;
+  permissions: Permission[];
+}
+export interface WorkspaceInviteItem {
+  id: string;
+  email: string;
+  permissions: Permission[];
+  expiresAt: string;
+  createdAt: string;
+}
+export interface WorkspaceDetail {
+  workspace: { id: string; name: string; status: string; ownerUserId: string };
+  me: { id: string; userId: string; displayName: string; isOwner: boolean; status: string; permissions: Permission[] };
+  members: WorkspaceMember[];
+  invites: WorkspaceInviteItem[];
+  seats: { base: number; available: number };
+}
+
+export const listWorkspaces = () => req<WorkspaceListItem[]>('/workspaces');
+export const createWorkspaceApi = (name: string) =>
+  req<{ id: string; name: string }>('/workspaces', { method: 'POST', body: JSON.stringify({ name }) });
+export const getWorkspace = (id: string) => req<WorkspaceDetail>(`/workspaces/${id}`);
+export const renameWorkspaceApi = (id: string, name: string) =>
+  req<{ id: string; name: string }>(`/workspaces/${id}`, { method: 'PATCH', body: JSON.stringify({ name }) });
+export const deleteWorkspaceApi = (id: string) => req<void>(`/workspaces/${id}`, { method: 'DELETE' });
+export const updateMemberPermissionsApi = (wid: string, mid: string, permissions: Permission[]) =>
+  req<{ id: string; permissions: Permission[] }>(`/workspaces/${wid}/members/${mid}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ permissions }),
+  });
+export const removeMemberApi = (wid: string, mid: string) =>
+  req<void>(`/workspaces/${wid}/members/${mid}`, { method: 'DELETE' });
+export const inviteMemberApi = (wid: string, email: string, permissions: Permission[]) =>
+  req<{ id: string; email: string; link: string; emailed: boolean }>(`/workspaces/${wid}/invites`, {
+    method: 'POST',
+    body: JSON.stringify({ email, permissions }),
+  });
+export const revokeInviteApi = (wid: string, iid: string) =>
+  req<void>(`/workspaces/${wid}/invites/${iid}`, { method: 'DELETE' });
+export const leaveWorkspaceApi = (wid: string) => req<void>(`/workspaces/${wid}/leave`, { method: 'POST' });
+export const switchWorkspaceApi = (workspaceId: string | null) =>
+  req<{ active: string | null }>('/workspaces/switch', { method: 'POST', body: JSON.stringify({ workspaceId }) });
+export const acceptInviteApi = (token: string, displayName: string) =>
+  req<{ workspaceId: string }>(`/invites/${token}/accept`, {
+    method: 'POST',
+    body: JSON.stringify({ displayName }),
+  });
+
 // ── Auth ──────────────────────────────────────────────────────────────────────
 interface AuthUser {
   id: string;

@@ -32,24 +32,93 @@ model User {
   widgets   Widget[]
   aiEdits   AiEdit[]
 
+  memberships     Membership[]
+  ownedWorkspaces Workspace[]  @relation("WorkspaceOwner")
+
   @@map("users")
 }
 
-model Workflow {
-  id        String   @id @default(uuid()) @db.Uuid
-  userId    String   @map("user_id") @db.Uuid
-  name      String
-  graph     Json     @default("{\"nodes\":[],\"edges\":[]}")
-  status    String   @default("draft")
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+// A shared, multi-member tenant — available only to Team-plan owners. Solo Free/Pro
+// accounts never create one; their resources keep workspaceId = null (personal).
+model Workspace {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String
+  slug        String   @unique
+  ownerUserId String   @map("owner_user_id") @db.Uuid
+  status      String   @default("active") // active | read_only | suspended
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  user    User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  runs    WorkflowRun[]
-  widgets Widget[]
-  aiEdits AiEdit[]
+  owner       User              @relation("WorkspaceOwner", fields: [ownerUserId], references: [id], onDelete: Cascade)
+  memberships Membership[]
+  invites     WorkspaceInvite[]
+  workflows   Workflow[]
+  widgets     Widget[]
+  aiEdits     AiEdit[]
+
+  @@index([ownerUserId])
+  @@map("workspaces")
+}
+
+// A user's identity + permission set within one workspace (the "specific user entity
+// per workspace"). permissions is a string[] of permission keys; isOwner is the
+// irrevocable billing/superuser. Removing a membership never deletes shared resources.
+model Membership {
+  id          String   @id @default(uuid()) @db.Uuid
+  workspaceId String   @map("workspace_id") @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  displayName String   @map("display_name")
+  isOwner     Boolean  @default(false) @map("is_owner")
+  permissions Json     @default("[]")
+  status      String   @default("active") // active | deactivated (unpaid seat)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, userId])
+  @@index([userId])
+  @@map("memberships")
+}
+
+// A pending email invitation. The raw token is emailed / shown as a link; only its
+// hash is stored. Carries the permissions the invitee will receive on accept.
+model WorkspaceInvite {
+  id              String   @id @default(uuid()) @db.Uuid
+  workspaceId     String   @map("workspace_id") @db.Uuid
+  email           String
+  permissions     Json     @default("[]")
+  tokenHash       String   @unique @map("token_hash")
+  invitedByUserId String   @map("invited_by_user_id") @db.Uuid
+  status          String   @default("pending") // pending | accepted | revoked | expired
+  expiresAt       DateTime @map("expires_at") @db.Timestamptz(6)
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@index([email])
+  @@map("workspace_invites")
+}
+
+model Workflow {
+  id          String   @id @default(uuid()) @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  workspaceId String?  @map("workspace_id") @db.Uuid // null = personal; set = shared
+  name        String
+  graph       Json     @default("{\"nodes\":[],\"edges\":[]}")
+  status      String   @default("draft")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace Workspace?    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  runs      WorkflowRun[]
+  widgets   Widget[]
+  aiEdits   AiEdit[]
 
   @@index([userId])
+  @@index([workspaceId])
   @@map("workflows")
 }
 
@@ -59,6 +128,7 @@ model Workflow {
 model AiEdit {
   id          String   @id @default(uuid()) @db.Uuid
   userId      String   @map("user_id") @db.Uuid
+  workspaceId String?  @map("workspace_id") @db.Uuid // null = personal; set = workspace pool
   workflowId  String   @map("workflow_id") @db.Uuid
   model       String // 'sonnet' | 'opus'
   tokenCost   Int      @map("token_cost")
@@ -67,11 +137,13 @@ model AiEdit {
   tokensOut   Int?     @map("tokens_out")
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  workflow Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workflow  Workflow   @relation(fields: [workflowId], references: [id], onDelete: Cascade)
 
   @@index([userId, createdAt])
   @@index([userId, workflowId])
+  @@index([workspaceId, createdAt])
   @@map("ai_edits")
 }
 
@@ -122,22 +194,25 @@ model NodeTemplate {
 }
 
 model Widget {
-  id         String   @id @default(uuid()) @db.Uuid
-  userId     String   @map("user_id") @db.Uuid
-  workflowId String   @map("workflow_id") @db.Uuid
-  name       String
-  type       String // 'form' | 'button' | 'feedback' | 'email_capture' | 'chat'
-  placement  String   @default("inline") // 'inline' | 'floating'
+  id          String   @id @default(uuid()) @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  workspaceId String?  @map("workspace_id") @db.Uuid // null = personal; set = shared
+  workflowId  String   @map("workflow_id") @db.Uuid
+  name        String
+  type        String // 'form' | 'button' | 'feedback' | 'email_capture' | 'chat'
+  placement   String   @default("inline") // 'inline' | 'floating'
   // Renderable config: fields, labels, theme, protection (domain allowlist, turnstile).
-  config     Json     @default("{}")
-  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  config      Json     @default("{}")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   user        User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace   Workspace?         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   workflow    Workflow           @relation(fields: [workflowId], references: [id], onDelete: Cascade)
   submissions WidgetSubmission[]
 
   @@index([userId])
+  @@index([workspaceId])
   @@map("widgets")
 }
 

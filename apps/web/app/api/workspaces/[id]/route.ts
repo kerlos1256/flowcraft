@@ -1,0 +1,67 @@
+import { NextResponse } from 'next/server';
+import { getSession } from '@/lib/auth';
+import { prisma } from '@/lib/prisma';
+import {
+  getMembership,
+  listMembers,
+  listInvites,
+  availableSeats,
+  renameWorkspace,
+  deleteWorkspace,
+  BASE_SEATS,
+} from '@/lib/workspace/data';
+import { membershipCan } from '@/lib/workspace/permissions';
+import { setActiveWorkspaceCookie } from '@/lib/workspace/tenant';
+import { workspaceErrorResponse } from '@/lib/workspace/http';
+
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
+async function activeMember(workspaceId: string, userId: string) {
+  const m = await getMembership(workspaceId, userId);
+  return m && m.status === 'active' ? m : null;
+}
+
+export async function GET(_req: Request, { params }: { params: { id: string } }) {
+  const s = await getSession();
+  if (!s) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+  const me = await activeMember(params.id, s.sub);
+  if (!me) return NextResponse.json({ error: 'not a member' }, { status: 403 });
+
+  const ws = await prisma.workspace.findUnique({
+    where: { id: params.id },
+    select: { id: true, name: true, status: true, ownerUserId: true },
+  });
+  if (!ws) return NextResponse.json({ error: 'not found' }, { status: 404 });
+
+  const [members, invites, seatsLeft] = await Promise.all([
+    listMembers(params.id),
+    listInvites(params.id),
+    availableSeats(params.id),
+  ]);
+  return NextResponse.json({ workspace: ws, me, members, invites, seats: { base: BASE_SEATS, available: seatsLeft } });
+}
+
+export async function PATCH(req: Request, { params }: { params: { id: string } }) {
+  const s = await getSession();
+  if (!s) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+  const me = await activeMember(params.id, s.sub);
+  if (!me || !membershipCan(me, 'workspace.manage')) return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+  const body = (await req.json().catch(() => ({}))) as { name?: string };
+  try {
+    const ws = await renameWorkspace(params.id, String(body.name ?? ''));
+    return NextResponse.json({ id: ws.id, name: ws.name });
+  } catch (e) {
+    return workspaceErrorResponse(e) ?? NextResponse.json({ error: 'failed' }, { status: 500 });
+  }
+}
+
+export async function DELETE(_req: Request, { params }: { params: { id: string } }) {
+  const s = await getSession();
+  if (!s) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+  const me = await activeMember(params.id, s.sub);
+  if (!me || !me.isOwner) return NextResponse.json({ error: 'only the owner can delete the workspace' }, { status: 403 });
+  await deleteWorkspace(params.id);
+  setActiveWorkspaceCookie(null);
+  return new NextResponse(null, { status: 204 });
+}
