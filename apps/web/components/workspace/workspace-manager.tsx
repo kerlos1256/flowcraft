@@ -14,12 +14,14 @@ import {
   switchWorkspaceApi,
   buySeatApi,
   releaseSeatApi,
+  buyTopupApi,
   startCheckout,
   type WorkspaceDetail,
   type WorkspaceListItem,
   type WorkspaceMember,
 } from '@/lib/api';
 import { PLANS } from '@/lib/plans';
+import { TOPUP_PACKS, TOPUP_PACK_IDS, dollars } from '@/lib/workspace/limits';
 import {
   PRESETS,
   PRESET_IDS,
@@ -514,6 +516,20 @@ function SeatsTab({ data, onChange }: { data: WorkspaceDetail; onChange: () => v
     }
   }
 
+  async function topup(packId: string) {
+    setBusy(true);
+    setErr(null);
+    try {
+      const { url } = await buyTopupApi(data.workspace.id, packId);
+      window.location.href = url;
+    } catch (e) {
+      setErr((e as Error).message);
+      setBusy(false);
+    }
+  }
+
+  const u = data.usage;
+
   return (
     <div className="flex flex-col gap-4">
       <div className="rounded-lg border border-border p-4">
@@ -533,6 +549,28 @@ function SeatsTab({ data, onChange }: { data: WorkspaceDetail; onChange: () => v
           )}
         </div>
         {err && <p className="mt-2 text-sm text-red-500">{err}</p>}
+      </div>
+
+      {/* Usage this month + top-ups */}
+      <div className="rounded-lg border border-border p-4">
+        <p className="mb-3 text-sm font-semibold">Usage this month</p>
+        <div className="flex flex-col gap-3">
+          <UsageBar label="Runs" used={u.runs.used} limit={u.runs.limit} balance={u.balances.runs} />
+          <UsageBar label="AI tokens" used={u.ai.used} limit={u.ai.limit} balance={u.balances.aiTokens} />
+          <UsageBar label="Widgets" used={u.widgets.used} limit={u.widgets.limit} />
+        </div>
+        {canBill && (
+          <div className="mt-4 flex flex-wrap gap-2">
+            {TOPUP_PACK_IDS.map((id) => (
+              <button key={id} className="btn btn-sm" onClick={() => topup(id)} disabled={busy}>
+                + {TOPUP_PACKS[id].label} · {dollars(TOPUP_PACKS[id].priceCents)}
+              </button>
+            ))}
+          </div>
+        )}
+        <p className="mt-2 text-[11px] text-muted">
+          Top-ups never expire — they roll over month to month and are used only after your monthly allotment.
+        </p>
       </div>
 
       <div className="flex flex-col gap-2">
@@ -563,6 +601,28 @@ function SeatsTab({ data, onChange }: { data: WorkspaceDetail; onChange: () => v
         Buying a seat opens Stripe Checkout; the seat appears here once payment completes. To free an occupied seat, remove
         that member on the Members tab. An unpaid seat deactivates its member until payment is fixed.
       </p>
+    </div>
+  );
+}
+
+function UsageBar({ label, used, limit, balance }: { label: string; used: number; limit: number; balance?: number }) {
+  const pct = limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0;
+  const over = used >= limit;
+  return (
+    <div>
+      <div className="mb-1 flex items-center justify-between text-xs">
+        <span className="text-muted">{label}</span>
+        <span className="text-muted">
+          {used.toLocaleString()} / {limit.toLocaleString()}
+          {balance ? ` (+${balance.toLocaleString()} top-up)` : ''}
+        </span>
+      </div>
+      <div className="h-2 overflow-hidden rounded-full bg-surface-muted">
+        <div
+          className="h-full rounded-full"
+          style={{ width: `${pct}%`, background: over ? 'var(--ai-accent)' : 'var(--primary)' }}
+        />
+      </div>
     </div>
   );
 }

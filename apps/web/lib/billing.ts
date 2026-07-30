@@ -2,6 +2,7 @@ import { prisma } from './prisma';
 import { planConfig, type PlanConfig } from './plans';
 import { aiTokenCost, type AiModelId } from './ai/models';
 import type { Tenant } from './workspace/tenant';
+import { WORKSPACE_LIMITS } from './workspace/limits';
 
 /** Thrown when an action exceeds the user's plan; surfaced as HTTP 402 + upgrade CTA. */
 export class LimitError extends Error {
@@ -106,27 +107,33 @@ export interface AiUsage {
   perWorkflowLimit: number | null;
   perWorkflowUsed: number;
   allowOpus: boolean;
+  /** Non-expiring top-up tokens available on top of the monthly allotment (workspace). */
+  topupBalance?: number;
 }
 
 export async function getAiUsage(tenant: Tenant, workflowId?: string): Promise<AiUsage> {
-  // Workspace: a shared Team pool counted per workspace (flat allotment + top-ups = Phase 3).
+  // Workspace: flat monthly allotment + non-expiring top-up balance, counted per workspace.
   if (tenant.kind === 'workspace') {
-    const plan = planConfig('team');
-    const windowStart = plan.aiTokenWindow === 'month' ? startOfMonthUTC() : undefined;
-    const usedAgg = await prisma.aiEdit.aggregate({
-      _sum: { tokenCost: true },
-      where: { workspaceId: tenant.workspaceId, ...(windowStart ? { createdAt: { gte: windowStart } } : {}) },
-    });
+    const [usedAgg, ws] = await Promise.all([
+      prisma.aiEdit.aggregate({
+        _sum: { tokenCost: true },
+        where: { workspaceId: tenant.workspaceId, createdAt: { gte: startOfMonthUTC() } },
+      }),
+      prisma.workspace.findUnique({ where: { id: tenant.workspaceId }, select: { topupAiTokenBalance: true } }),
+    ]);
     const used = usedAgg._sum.tokenCost ?? 0;
+    const allotment = WORKSPACE_LIMITS.aiTokensPerMonth;
+    const balance = ws?.topupAiTokenBalance ?? 0;
     return {
       planId: 'team',
-      window: plan.aiTokenWindow,
-      tokens: plan.aiTokens,
+      window: 'month',
+      tokens: allotment,
       used,
-      remaining: Math.max(0, plan.aiTokens - used),
+      remaining: Math.max(0, allotment - used) + balance,
       perWorkflowLimit: null,
       perWorkflowUsed: 0,
-      allowOpus: plan.aiOpus,
+      allowOpus: true,
+      topupBalance: balance,
     };
   }
 
@@ -171,9 +178,11 @@ export async function assertCanUseAi(tenant: Tenant, workflowId: string, model: 
   }
   if (u.remaining < cost) {
     const msg =
-      u.window === 'lifetime'
-        ? "You've used all 3 of your free AI builds. Upgrade to Pro for 150 AI tokens every month."
-        : "You've used all your AI tokens for this month. Upgrade or wait for your monthly reset.";
+      tenant.kind === 'workspace'
+        ? "This workspace has used its monthly AI tokens. Buy an AI top-up to keep using the assistant."
+        : u.window === 'lifetime'
+          ? "You've used all 3 of your free AI builds. Upgrade to Pro for 150 AI tokens every month."
+          : "You've used all your AI tokens for this month. Upgrade or wait for your monthly reset.";
     throw new LimitError(msg, 'ai_limit');
   }
 }

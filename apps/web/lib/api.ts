@@ -112,6 +112,12 @@ export interface WorkspaceSeatInfo {
   assignedName: string | null;
   subscriptionId: string | null;
 }
+export interface WorkspaceUsageDto {
+  runs: { used: number; limit: number };
+  ai: { used: number; limit: number };
+  widgets: { used: number; limit: number };
+  balances: { runs: number; aiTokens: number };
+}
 export interface WorkspaceDetail {
   workspace: { id: string; name: string; status: string; ownerUserId: string };
   me: { id: string; userId: string; displayName: string; isOwner: boolean; status: string; permissions: Permission[] };
@@ -119,6 +125,7 @@ export interface WorkspaceDetail {
   invites: WorkspaceInviteItem[];
   seats: { base: number; available: number; total: number; max: number };
   seatList: WorkspaceSeatInfo[];
+  usage: WorkspaceUsageDto;
 }
 
 export const listWorkspaces = () => req<WorkspaceListItem[]>('/workspaces');
@@ -154,6 +161,8 @@ export const buySeatApi = (wid: string) =>
   req<{ url: string }>(`/workspaces/${wid}/seats/checkout`, { method: 'POST' });
 export const releaseSeatApi = (wid: string, seatId: string) =>
   req<{ releasing?: boolean }>(`/workspaces/${wid}/seats/${seatId}`, { method: 'DELETE' });
+export const buyTopupApi = (wid: string, packId: string) =>
+  req<{ url: string }>(`/workspaces/${wid}/topups/checkout`, { method: 'POST', body: JSON.stringify({ packId }) });
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 interface AuthUser {

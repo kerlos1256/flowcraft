@@ -2,6 +2,7 @@ import { getSession } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { getOwnedWorkspace, getMembership, listMembers, listInvites, listMyWorkspaces } from '@/lib/workspace/data';
 import { availableSeats, listSeats, seatCount, ensureBaseSeats, BASE_SEATS, MAX_SEATS } from '@/lib/workspace/seats';
+import { getWorkspaceUsage } from '@/lib/workspace/usage';
 import { resolveTenant } from '@/lib/workspace/tenant';
 import { WorkspaceManager } from '@/components/workspace/workspace-manager';
 import type { WorkspaceDetail } from '@/lib/api';
@@ -24,11 +25,12 @@ export default async function WorkspacePage() {
     const members = await listMembers(ownedWs.id);
     const owner = members.find((m) => m.isOwner);
     if (owner) await ensureBaseSeats(ownedWs.id, owner.id);
-    const [invites, seatsLeft, seatList, total] = await Promise.all([
+    const [invites, seatsLeft, seatList, total, usage] = await Promise.all([
       listInvites(ownedWs.id),
       availableSeats(ownedWs.id),
       listSeats(ownedWs.id),
       seatCount(ownedWs.id),
+      getWorkspaceUsage(ownedWs.id),
     ]);
     if (me) {
       owned = {
@@ -38,6 +40,7 @@ export default async function WorkspacePage() {
         invites,
         seats: { base: BASE_SEATS, available: seatsLeft, total, max: MAX_SEATS },
         seatList,
+        usage,
       };
     }
   }

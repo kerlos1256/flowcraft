@@ -22,6 +22,8 @@ export interface AiUsageDto {
   perWorkflowLimit: number | null;
   perWorkflowUsed: number;
   allowOpus: boolean;
+  /** Non-expiring top-up tokens on top of the monthly allotment (workspace only). */
+  topupBalance?: number;
   /** Whether ANTHROPIC_API_KEY is configured on the server. */
   configured: boolean;
 }

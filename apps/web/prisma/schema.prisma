@@ -46,6 +46,10 @@ model Workspace {
   slug        String   @unique
   ownerUserId String   @map("owner_user_id") @db.Uuid
   status      String   @default("active") // active | read_only | suspended
+  // Non-expiring top-up balances (mobile-data style): consumed only after the
+  // monthly allotment, never reset. Credited by one-time top-up purchases.
+  topupRunsBalance    Int      @default(0) @map("topup_runs_balance")
+  topupAiTokenBalance Int      @default(0) @map("topup_ai_token_balance")
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -53,12 +57,29 @@ model Workspace {
   memberships Membership[]
   invites     WorkspaceInvite[]
   seats       WorkspaceSeat[]
+  topups      TopupPurchase[]
   workflows   Workflow[]
   widgets     Widget[]
   aiEdits     AiEdit[]
 
   @@index([ownerUserId])
   @@map("workspaces")
+}
+
+// One row per completed top-up purchase — the audit trail behind the balance.
+model TopupPurchase {
+  id              String   @id @default(uuid()) @db.Uuid
+  workspaceId     String   @map("workspace_id") @db.Uuid
+  kind            String // 'runs' | 'ai_tokens'
+  amount          Int
+  priceCents      Int      @map("price_cents")
+  stripePaymentId String?  @unique @map("stripe_payment_id")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@map("topup_purchases")
 }
 
 // A seat = one member slot. The 2 `base` seats come with the Team plan; each

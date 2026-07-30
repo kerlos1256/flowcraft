@@ -18,6 +18,7 @@ import { inngest } from './inngest/client';
 import { TEMPLATE_BY_SLUG } from './templates';
 import { assertCanCreateWorkflow, assertCanRun, assertCanSchedule } from './billing';
 import { scopeWhere, createStamp, type Tenant } from './workspace/tenant';
+import { assertWorkspaceCanRun } from './workspace/usage';
 
 // ── Users ────────────────────────────────────────────────────────────────────
 
@@ -184,7 +185,8 @@ export async function runWorkflow(
 ): Promise<WorkflowRunDto | null> {
   const owned = await prisma.workflow.findFirst({ where: { id, ...scopeWhere(tenant) }, select: { id: true } });
   if (!owned) return null;
-  if (tenant.kind === 'personal') await assertCanRun(tenant.userId); // → 402 (workspace limits: Phase 3)
+  if (tenant.kind === 'personal') await assertCanRun(tenant.userId);
+  else await assertWorkspaceCanRun(tenant.workspaceId); // allotment + top-up runs
   return dispatchRun(id, 'manual', payload);
 }
 
@@ -193,9 +195,10 @@ export async function runWorkflowByWebhook(
   id: string,
   payload: Record<string, unknown>,
 ): Promise<WorkflowRunDto | null> {
-  const wf = await prisma.workflow.findUnique({ where: { id }, select: { userId: true } });
+  const wf = await prisma.workflow.findUnique({ where: { id }, select: { userId: true, workspaceId: true } });
   if (!wf) return null;
-  await assertCanRun(wf.userId);
+  if (wf.workspaceId) await assertWorkspaceCanRun(wf.workspaceId);
+  else await assertCanRun(wf.userId);
   return dispatchRun(id, 'webhook', payload);
 }
 

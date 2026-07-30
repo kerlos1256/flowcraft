@@ -5,6 +5,7 @@ import { prisma } from '@/lib/prisma';
 import { assertCanUseAi, getAiUsage } from '@/lib/billing';
 import { limitErrorResponse } from '@/lib/api-errors';
 import { resolveTenant, requirePermission, assertWritable, createStamp } from '@/lib/workspace/tenant';
+import { consumeWorkspaceAiOverflow } from '@/lib/workspace/usage';
 import { workspaceErrorResponse } from '@/lib/workspace/http';
 import { aiConfigured } from '@/lib/ai/client';
 import { aiTokenCost, isAiModelId } from '@/lib/ai/models';
@@ -56,6 +57,9 @@ export async function POST(req: Request, { params }: { params: { id: string } })
 
     // Consume quota only on a real edit; stamp the tenant (userId + workspaceId).
     if (!result.refused) {
+      // Deduct any overflow beyond the monthly allotment from the workspace's top-up
+      // balance BEFORE recording (so the month's `used` excludes this edit).
+      if (t.kind === 'workspace') await consumeWorkspaceAiOverflow(t.workspaceId, aiTokenCost(model));
       await prisma.aiEdit.create({
         data: {
           ...createStamp(t),

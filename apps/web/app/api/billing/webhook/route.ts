@@ -3,6 +3,8 @@ import type Stripe from 'stripe';
 import { prisma } from '@/lib/prisma';
 import { stripe, planForPriceId } from '@/lib/stripe';
 import { upsertSeatFromSubscription, type SeatStatus } from '@/lib/workspace/seats';
+import { creditTopup } from '@/lib/workspace/usage';
+import { TOPUP_PACKS, isTopupPackId } from '@/lib/workspace/limits';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -25,7 +27,9 @@ export async function POST(req: Request) {
     switch (event.type) {
       case 'checkout.session.completed': {
         const session = event.data.object as Stripe.Checkout.Session;
-        if (session.subscription) {
+        if (session.mode === 'payment' && session.metadata?.kind === 'topup') {
+          await creditTopupFromSession(session);
+        } else if (session.subscription) {
           const sub = await stripe().subscriptions.retrieve(String(session.subscription));
           await onSubscription(sub);
         }
@@ -44,6 +48,16 @@ export async function POST(req: Request) {
   }
 
   return NextResponse.json({ received: true });
+}
+
+/** Credit a completed top-up purchase to the workspace balance (idempotent). */
+async function creditTopupFromSession(session: Stripe.Checkout.Session): Promise<void> {
+  const workspaceId = session.metadata?.workspaceId;
+  const packId = session.metadata?.packId;
+  if (!workspaceId || !isTopupPackId(packId)) return;
+  const pack = TOPUP_PACKS[packId];
+  const paymentId = typeof session.payment_intent === 'string' ? session.payment_intent : session.id;
+  await creditTopup(workspaceId, pack.kind, pack.amount, pack.priceCents, paymentId);
 }
 
 /** Route a subscription to seat-sync (workspace extra seat) or plan-sync (user plan). */

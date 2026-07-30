@@ -3,6 +3,7 @@ import { runWorkflowByWebhook } from './data';
 import { assertCanCreateWidget, getUserPlan } from './billing';
 import { planConfig } from './plans';
 import { scopeWhere, createStamp, type Tenant } from './workspace/tenant';
+import { assertWorkspaceCanCreateWidget } from './workspace/usage';
 import {
   DEFAULT_THEME,
   defaultWidgetConfig,
@@ -69,7 +70,8 @@ export async function createWidget(
     select: { id: true },
   });
   if (!owns) return null; // must link a workflow in this tenant
-  if (tenant.kind === 'personal') await assertCanCreateWidget(tenant.userId); // → 402 (workspace: Phase 3)
+  if (tenant.kind === 'personal') await assertCanCreateWidget(tenant.userId);
+  else await assertWorkspaceCanCreateWidget(tenant.workspaceId); // workspace widget cap
 
   const base = defaultWidgetConfig(input.type);
   const config = await sanitizeForPlan(tenant, base);
