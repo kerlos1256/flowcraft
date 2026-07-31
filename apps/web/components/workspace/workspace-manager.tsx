@@ -141,7 +141,7 @@ function CreateWorkspace({ defaultName }: { defaultName: string }) {
 }
 
 // ── Manage an existing workspace ────────────────────────────────────────────────
-type Tab = 'members' | 'invites' | 'seats' | 'settings';
+type Tab = 'members' | 'invites' | 'seats' | 'activity' | 'settings';
 
 function Manage({ initial }: { initial: WorkspaceDetail }) {
   const [data, setData] = useState<WorkspaceDetail>(initial);
@@ -159,6 +159,7 @@ function Manage({ initial }: { initial: WorkspaceDetail }) {
     { id: 'members', label: `Members (${data.members.length})` },
     { id: 'invites', label: `Invites (${data.invites.length})` },
     { id: 'seats', label: `Seats (${data.seats.total})` },
+    { id: 'activity', label: 'Activity' },
     { id: 'settings', label: 'Settings' },
   ];
 
@@ -195,6 +196,7 @@ function Manage({ initial }: { initial: WorkspaceDetail }) {
         {tab === 'members' && <MembersTab data={data} onChange={refresh} />}
         {tab === 'invites' && <InvitesTab data={data} onChange={refresh} />}
         {tab === 'seats' && <SeatsTab data={data} onChange={refresh} />}
+        {tab === 'activity' && <ActivityTab data={data} />}
         {tab === 'settings' && <SettingsTab data={data} />}
       </div>
     </div>
@@ -674,6 +676,54 @@ function SeatsTab({ data, onChange }: { data: WorkspaceDetail; onChange: () => v
         Buying a seat opens Stripe Checkout; the seat appears here once payment completes. To free an occupied seat, remove
         that member on the Members tab. An unpaid seat deactivates its member until payment is fixed.
       </p>
+    </div>
+  );
+}
+
+// ── Activity log ────────────────────────────────────────────────────────────────
+const AUDIT_VERB: Record<string, (d: string) => string> = {
+  'invite.sent': (d) => `invited ${d}`,
+  'invite.revoked': () => 'revoked an invite',
+  'invite.resent': (d) => `re-sent an invite to ${d}`,
+  'member.joined': () => 'joined the workspace',
+  'member.removed': (d) => `removed ${d}`,
+  'member.left': () => 'left the workspace',
+  'permissions.changed': (d) => `updated ${d}’s permissions`,
+  'ownership.transferred': (d) => `transferred ownership to ${d}`,
+  'workspace.renamed': (d) => `renamed the workspace to “${d}”`,
+  'seat.added': () => 'added a seat',
+  'seat.removed': () => 'removed a seat',
+  'member.deactivated': (d) => `deactivated ${d} (unpaid seat)`,
+  'member.reactivated': (d) => `reactivated ${d}`,
+  'topup.purchased': (d) => `purchased a top-up (${d})`,
+};
+
+function relTime(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return 'just now';
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return new Date(iso).toLocaleDateString();
+}
+
+function ActivityTab({ data }: { data: WorkspaceDetail }) {
+  if (data.audit.length === 0) return <p className="text-xs text-muted">No activity yet.</p>;
+  return (
+    <div className="flex flex-col gap-2">
+      {data.audit.map((e) => {
+        const verb = AUDIT_VERB[e.action]?.(e.detail) ?? e.action;
+        return (
+          <div key={e.id} className="flex items-center gap-2 border-b border-border pb-2 text-sm last:border-0">
+            <span className="text-muted">•</span>
+            <span>
+              <b>{e.actorName}</b> {verb}
+            </span>
+            <span className="ml-auto shrink-0 text-xs text-muted">{relTime(e.createdAt)}</span>
+          </div>
+        );
+      })}
     </div>
   );
 }

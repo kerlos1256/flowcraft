@@ -3,6 +3,7 @@
 // unassigned; joining a workspace consumes a free seat. Server-only.
 import 'server-only';
 import { prisma } from '@/lib/prisma';
+import { logAudit } from './audit';
 
 /** Seats included in the Team base plan (owner + 1). */
 export const BASE_SEATS = 2;
@@ -96,20 +97,24 @@ export async function upsertSeatFromSubscription(
   if (status === 'canceled') {
     if (existing) {
       if (existing.assignedMembershipId) {
-        await prisma.membership.update({ where: { id: existing.assignedMembershipId }, data: { status: 'deactivated' } });
+        const m = await prisma.membership.update({ where: { id: existing.assignedMembershipId }, data: { status: 'deactivated' } });
+        await logAudit(existing.workspaceId, 'Billing', 'member.deactivated', m.displayName);
       }
       await prisma.workspaceSeat.delete({ where: { id: existing.id } });
+      await logAudit(existing.workspaceId, 'Billing', 'seat.removed');
     }
     return;
   }
 
   if (existing) {
+    const changed = existing.status !== status;
     await prisma.workspaceSeat.update({ where: { id: existing.id }, data: { status } });
     if (existing.assignedMembershipId) {
-      await prisma.membership.update({
-        where: { id: existing.assignedMembershipId },
-        data: { status: status === 'active' ? 'active' : 'deactivated' },
-      });
+      const memberStatus = status === 'active' ? 'active' : 'deactivated';
+      const m = await prisma.membership.update({ where: { id: existing.assignedMembershipId }, data: { status: memberStatus } });
+      if (changed) {
+        await logAudit(existing.workspaceId, 'Billing', memberStatus === 'active' ? 'member.reactivated' : 'member.deactivated', m.displayName);
+      }
     }
     return;
   }
@@ -118,4 +123,5 @@ export async function upsertSeatFromSubscription(
   await prisma.workspaceSeat.create({
     data: { workspaceId, kind: 'extra', stripeSubscriptionId: subscriptionId, status },
   });
+  await logAudit(workspaceId, 'Billing', 'seat.added');
 }

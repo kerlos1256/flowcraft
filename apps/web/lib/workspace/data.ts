@@ -8,6 +8,7 @@ import { randomBytes, createHash } from 'crypto';
 import { prisma } from '@/lib/prisma';
 import { cleanPermissions, PRESETS, type Permission } from './permissions';
 import { provisionBaseSeats, assignFreeSeat, availableSeats } from './seats';
+import { logAudit } from './audit';
 
 // Seat accounting lives in ./seats; re-exported so existing importers keep working.
 export { BASE_SEATS, availableSeats } from './seats';
@@ -168,20 +169,21 @@ export async function updateMemberPermissions(
   return prisma.membership.update({ where: { id: membershipId }, data: { permissions: next } });
 }
 
-export async function removeMember(workspaceId: string, membershipId: string) {
+export async function removeMember(workspaceId: string, membershipId: string): Promise<string> {
   const target = await prisma.membership.findFirst({ where: { id: membershipId, workspaceId } });
   if (!target) throw new WorkspaceError('Member not found.', 'invalid');
   if (target.isOwner) throw new WorkspaceError("The owner can't be removed.", 'last_owner');
   await prisma.membership.delete({ where: { id: membershipId } });
+  return target.displayName;
 }
 
 /** Hand the workspace to another active member. The old owner becomes an Admin. */
-export async function transferOwnership(workspaceId: string, targetMembershipId: string) {
+export async function transferOwnership(workspaceId: string, targetMembershipId: string): Promise<string> {
   const target = await prisma.membership.findFirst({
     where: { id: targetMembershipId, workspaceId, status: 'active' },
   });
   if (!target) throw new WorkspaceError('Choose an active member to transfer ownership to.', 'invalid');
-  if (target.isOwner) return;
+  if (target.isOwner) return target.displayName;
   const currentOwner = await prisma.membership.findFirst({ where: { workspaceId, isOwner: true } });
   await prisma.$transaction([
     prisma.workspace.update({ where: { id: workspaceId }, data: { ownerUserId: target.userId } }),
@@ -190,16 +192,18 @@ export async function transferOwnership(workspaceId: string, targetMembershipId:
       ? [prisma.membership.update({ where: { id: currentOwner.id }, data: { isOwner: false, permissions: PRESETS.admin.permissions } })]
       : []),
   ]);
+  return target.displayName;
 }
 
 export async function leaveWorkspace(workspaceId: string, userId: string) {
   const m = await prisma.membership.findUnique({
     where: { workspaceId_userId: { workspaceId, userId } },
-    select: { id: true, isOwner: true },
+    select: { id: true, isOwner: true, displayName: true },
   });
   if (!m) throw new WorkspaceError('You are not a member.', 'invalid');
   if (m.isOwner) throw new WorkspaceError('The owner must transfer ownership or delete the workspace.', 'last_owner');
   await prisma.membership.delete({ where: { id: m.id } });
+  await logAudit(workspaceId, m.displayName, 'member.left');
 }
 
 // ── Invites ───────────────────────────────────────────────────────────────────
@@ -352,5 +356,6 @@ export async function acceptInvite(rawToken: string, userId: string, displayName
     prisma.workspaceInvite.update({ where: { id: invite.id }, data: { status: 'accepted' } }),
   ]);
   await assignFreeSeat(invite.workspaceId, membership.id); // take a free seat
+  await logAudit(invite.workspaceId, name, 'member.joined');
   return invite.workspaceId;
 }

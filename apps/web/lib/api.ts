@@ -118,6 +118,13 @@ export interface WorkspaceUsageDto {
   widgets: { used: number; limit: number };
   balances: { runs: number; aiTokens: number };
 }
+export interface WorkspaceAuditEntry {
+  id: string;
+  actorName: string;
+  action: string;
+  detail: string;
+  createdAt: string;
+}
 export interface WorkspaceDetail {
   workspace: { id: string; name: string; status: string; ownerUserId: string };
   me: { id: string; userId: string; displayName: string; isOwner: boolean; status: string; permissions: Permission[] };
@@ -126,6 +133,7 @@ export interface WorkspaceDetail {
   seats: { base: number; available: number; total: number; max: number };
   seatList: WorkspaceSeatInfo[];
   usage: WorkspaceUsageDto;
+  audit: WorkspaceAuditEntry[];
 }
 
 export const listWorkspaces = () => req<WorkspaceListItem[]>('/workspaces');

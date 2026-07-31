@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma';
 import { getMembership, listMembers, listInvites, renameWorkspace, deleteWorkspace } from '@/lib/workspace/data';
 import { availableSeats, listSeats, seatCount, ensureBaseSeats, BASE_SEATS, MAX_SEATS } from '@/lib/workspace/seats';
 import { getWorkspaceUsage } from '@/lib/workspace/usage';
+import { listAudit, logAudit } from '@/lib/workspace/audit';
 import { membershipCan } from '@/lib/workspace/permissions';
 import { setActiveWorkspaceCookie } from '@/lib/workspace/tenant';
 import { workspaceErrorResponse } from '@/lib/workspace/http';
@@ -32,12 +33,13 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
   const owner = members.find((m) => m.isOwner);
   if (owner) await ensureBaseSeats(params.id, owner.id); // backfill for pre-seat workspaces
 
-  const [invites, seatsLeft, seatList, total, usage] = await Promise.all([
+  const [invites, seatsLeft, seatList, total, usage, audit] = await Promise.all([
     listInvites(params.id),
     availableSeats(params.id),
     listSeats(params.id),
     seatCount(params.id),
     getWorkspaceUsage(params.id),
+    listAudit(params.id, 40),
   ]);
   return NextResponse.json({
     workspace: ws,
@@ -47,6 +49,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     seats: { base: BASE_SEATS, available: seatsLeft, total, max: MAX_SEATS },
     seatList,
     usage,
+    audit,
   });
 }
 
@@ -58,6 +61,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   const body = (await req.json().catch(() => ({}))) as { name?: string };
   try {
     const ws = await renameWorkspace(params.id, String(body.name ?? ''));
+    await logAudit(params.id, me.displayName, 'workspace.renamed', ws.name);
     return NextResponse.json({ id: ws.id, name: ws.name });
   } catch (e) {
     return workspaceErrorResponse(e) ?? NextResponse.json({ error: 'failed' }, { status: 500 });

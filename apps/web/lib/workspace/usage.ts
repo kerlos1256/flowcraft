@@ -5,6 +5,7 @@ import 'server-only';
 import { prisma } from '@/lib/prisma';
 import { LimitError } from '@/lib/billing';
 import { WORKSPACE_LIMITS, type TopupKind } from './limits';
+import { logAudit } from './audit';
 
 function startOfMonthUTC(): Date {
   const now = new Date();
@@ -118,4 +119,5 @@ export async function creditTopup(
     }),
     prisma.topupPurchase.create({ data: { workspaceId, kind, amount, priceCents, stripePaymentId } }),
   ]);
+  await logAudit(workspaceId, 'Billing', 'topup.purchased', `${amount.toLocaleString()} ${kind === 'runs' ? 'runs' : 'AI tokens'}`);
 }

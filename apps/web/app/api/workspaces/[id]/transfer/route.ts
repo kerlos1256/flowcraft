@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { getMembership, transferOwnership } from '@/lib/workspace/data';
 import { workspaceErrorResponse } from '@/lib/workspace/http';
+import { logAudit } from '@/lib/workspace/audit';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -17,7 +18,8 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   const body = (await req.json().catch(() => ({}))) as { membershipId?: string };
   if (!body.membershipId) return NextResponse.json({ error: 'membershipId required' }, { status: 400 });
   try {
-    await transferOwnership(params.id, body.membershipId);
+    const newOwner = await transferOwnership(params.id, body.membershipId);
+    await logAudit(params.id, me.displayName, 'ownership.transferred', newOwner);
     return NextResponse.json({ ok: true });
   } catch (e) {
     return workspaceErrorResponse(e) ?? NextResponse.json({ error: 'failed' }, { status: 500 });

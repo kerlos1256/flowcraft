@@ -10,6 +10,7 @@ import {
 } from '@/lib/workspace/data';
 import { availableSeats, listSeats, seatCount, ensureBaseSeats, BASE_SEATS, MAX_SEATS } from '@/lib/workspace/seats';
 import { getWorkspaceUsage } from '@/lib/workspace/usage';
+import { listAudit } from '@/lib/workspace/audit';
 import { resolveTenant } from '@/lib/workspace/tenant';
 import { WorkspaceManager } from '@/components/workspace/workspace-manager';
 import type { WorkspaceDetail } from '@/lib/api';
@@ -33,12 +34,13 @@ export default async function WorkspacePage() {
     const members = await listMembers(ownedWs.id);
     const owner = members.find((m) => m.isOwner);
     if (owner) await ensureBaseSeats(ownedWs.id, owner.id);
-    const [invites, seatsLeft, seatList, total, usage] = await Promise.all([
+    const [invites, seatsLeft, seatList, total, usage, audit] = await Promise.all([
       listInvites(ownedWs.id),
       availableSeats(ownedWs.id),
       listSeats(ownedWs.id),
       seatCount(ownedWs.id),
       getWorkspaceUsage(ownedWs.id),
+      listAudit(ownedWs.id, 40),
     ]);
     if (me) {
       owned = {
@@ -49,6 +51,7 @@ export default async function WorkspacePage() {
         seats: { base: BASE_SEATS, available: seatsLeft, total, max: MAX_SEATS },
         seatList,
         usage,
+        audit,
       };
     }
   }
