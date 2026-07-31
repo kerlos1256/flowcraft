@@ -163,6 +163,10 @@ export const releaseSeatApi = (wid: string, seatId: string) =>
   req<{ releasing?: boolean }>(`/workspaces/${wid}/seats/${seatId}`, { method: 'DELETE' });
 export const buyTopupApi = (wid: string, packId: string) =>
   req<{ url: string }>(`/workspaces/${wid}/topups/checkout`, { method: 'POST', body: JSON.stringify({ packId }) });
+export const transferOwnershipApi = (wid: string, membershipId: string) =>
+  req<{ ok: boolean }>(`/workspaces/${wid}/transfer`, { method: 'POST', body: JSON.stringify({ membershipId }) });
+export const resendInviteApi = (wid: string, iid: string) =>
+  req<{ link: string; emailed: boolean }>(`/workspaces/${wid}/invites/${iid}/resend`, { method: 'POST' });
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 interface AuthUser {

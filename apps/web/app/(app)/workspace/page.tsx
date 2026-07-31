@@ -1,6 +1,13 @@
 import { getSession } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
-import { getOwnedWorkspace, getMembership, listMembers, listInvites, listMyWorkspaces } from '@/lib/workspace/data';
+import {
+  getOwnedWorkspace,
+  getMembership,
+  listMembers,
+  listInvites,
+  listMyWorkspaces,
+  listDeactivatedMemberships,
+} from '@/lib/workspace/data';
 import { availableSeats, listSeats, seatCount, ensureBaseSeats, BASE_SEATS, MAX_SEATS } from '@/lib/workspace/seats';
 import { getWorkspaceUsage } from '@/lib/workspace/usage';
 import { resolveTenant } from '@/lib/workspace/tenant';
@@ -11,10 +18,11 @@ export const dynamic = 'force-dynamic';
 
 export default async function WorkspacePage() {
   const session = (await getSession())!;
-  const [user, ownedWs, memberships, tenant] = await Promise.all([
+  const [user, ownedWs, memberships, deactivated, tenant] = await Promise.all([
     prisma.user.findUnique({ where: { id: session.sub }, select: { plan: true, name: true } }),
     getOwnedWorkspace(session.sub),
     listMyWorkspaces(session.sub),
+    listDeactivatedMemberships(session.sub),
     resolveTenant(),
   ]);
   const activeId = tenant?.kind === 'workspace' ? tenant.workspaceId : null;
@@ -51,6 +59,7 @@ export default async function WorkspacePage() {
       userName={user?.name ?? 'You'}
       owned={owned}
       memberships={memberships}
+      deactivated={deactivated}
       activeId={activeId}
     />
   );

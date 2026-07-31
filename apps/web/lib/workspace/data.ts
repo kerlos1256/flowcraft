@@ -6,7 +6,7 @@
 import 'server-only';
 import { randomBytes, createHash } from 'crypto';
 import { prisma } from '@/lib/prisma';
-import { cleanPermissions, type Permission } from './permissions';
+import { cleanPermissions, PRESETS, type Permission } from './permissions';
 import { provisionBaseSeats, assignFreeSeat, availableSeats } from './seats';
 
 // Seat accounting lives in ./seats; re-exported so existing importers keep working.
@@ -88,6 +88,15 @@ export async function getOwnedWorkspace(userId: string) {
   return prisma.workspace.findFirst({ where: { ownerUserId: userId } });
 }
 
+/** Workspaces where the user's seat is unpaid/suspended (deactivated membership). */
+export async function listDeactivatedMemberships(userId: string) {
+  const rows = await prisma.membership.findMany({
+    where: { userId, status: 'deactivated' },
+    include: { workspace: { select: { name: true } } },
+  });
+  return rows.map((m) => ({ workspaceId: m.workspaceId, workspaceName: m.workspace.name }));
+}
+
 export async function renameWorkspace(workspaceId: string, name: string) {
   const clean = name.trim().slice(0, 60);
   if (!clean) throw new WorkspaceError('Name is required.', 'invalid');
@@ -164,6 +173,23 @@ export async function removeMember(workspaceId: string, membershipId: string) {
   if (!target) throw new WorkspaceError('Member not found.', 'invalid');
   if (target.isOwner) throw new WorkspaceError("The owner can't be removed.", 'last_owner');
   await prisma.membership.delete({ where: { id: membershipId } });
+}
+
+/** Hand the workspace to another active member. The old owner becomes an Admin. */
+export async function transferOwnership(workspaceId: string, targetMembershipId: string) {
+  const target = await prisma.membership.findFirst({
+    where: { id: targetMembershipId, workspaceId, status: 'active' },
+  });
+  if (!target) throw new WorkspaceError('Choose an active member to transfer ownership to.', 'invalid');
+  if (target.isOwner) return;
+  const currentOwner = await prisma.membership.findFirst({ where: { workspaceId, isOwner: true } });
+  await prisma.$transaction([
+    prisma.workspace.update({ where: { id: workspaceId }, data: { ownerUserId: target.userId } }),
+    prisma.membership.update({ where: { id: target.id }, data: { isOwner: true, permissions: [] } }),
+    ...(currentOwner
+      ? [prisma.membership.update({ where: { id: currentOwner.id }, data: { isOwner: false, permissions: PRESETS.admin.permissions } })]
+      : []),
+  ]);
 }
 
 export async function leaveWorkspace(workspaceId: string, userId: string) {
@@ -252,6 +278,21 @@ export async function revokeInvite(workspaceId: string, inviteId: string) {
     where: { id: inviteId, workspaceId, status: 'pending' },
     data: { status: 'revoked' },
   });
+}
+
+/** Re-issue a pending invite: fresh token (old link dies) + extended expiry. */
+export async function resendInvite(
+  workspaceId: string,
+  inviteId: string,
+): Promise<{ email: string; link: string } | null> {
+  const invite = await prisma.workspaceInvite.findFirst({ where: { id: inviteId, workspaceId, status: 'pending' } });
+  if (!invite) return null;
+  const rawToken = randomBytes(24).toString('hex');
+  await prisma.workspaceInvite.update({
+    where: { id: invite.id },
+    data: { tokenHash: hashToken(rawToken), expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 24 * 14) },
+  });
+  return { email: invite.email, link: `${appBaseUrl()}/invite/${rawToken}` };
 }
 
 /** Public-ish lookup for the accept page (by raw token). */

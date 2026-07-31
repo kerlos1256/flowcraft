@@ -41,6 +41,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           </div>
         </div>
       </header>
+      {tenant?.kind === 'workspace' && tenant.workspaceStatus !== 'active' && (
+        <div className="border-b border-amber-500/30 bg-amber-500/10 px-5 py-2 text-center text-xs text-amber-700 dark:text-amber-400">
+          ⚠ <b>{tenant.workspaceName}</b> is read-only — its subscription needs attention. The owner can fix billing to
+          restore editing.
+        </div>
+      )}
       <main className="mx-auto w-full max-w-[1400px] px-5 py-6">{children}</main>
     </>
   );

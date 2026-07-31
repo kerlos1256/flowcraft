@@ -15,6 +15,8 @@ import {
   buySeatApi,
   releaseSeatApi,
   buyTopupApi,
+  transferOwnershipApi,
+  resendInviteApi,
   startCheckout,
   type WorkspaceDetail,
   type WorkspaceListItem,
@@ -36,13 +38,23 @@ interface Props {
   userName: string;
   owned: WorkspaceDetail | null;
   memberships: WorkspaceListItem[];
+  deactivated: { workspaceId: string; workspaceName: string }[];
   activeId: string | null;
 }
 
-export function WorkspaceManager({ plan, userName, owned, memberships, activeId }: Props) {
+export function WorkspaceManager({ plan, userName, owned, memberships, deactivated, activeId }: Props) {
   return (
     <div className="flex flex-col gap-8">
       <h1 className="text-xl font-semibold">Workspace</h1>
+      {deactivated.map((d) => (
+        <div
+          key={d.workspaceId}
+          className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-400"
+        >
+          ⚠ Your seat in <b>{d.workspaceName}</b> is unpaid, so your access is paused. Ask the workspace owner to fix the
+          seat’s billing to restore it.
+        </div>
+      ))}
       {owned ? (
         <Manage initial={owned} />
       ) : plan === 'team' ? (
@@ -312,6 +324,7 @@ function InvitesTab({ data, onChange }: { data: WorkspaceDetail; onChange: () =>
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [lastLink, setLastLink] = useState<{ link: string; emailed: boolean } | null>(null);
+  const [resent, setResent] = useState<{ id: string; link: string; emailed: boolean } | null>(null);
 
   async function invite() {
     setBusy(true);
@@ -391,24 +404,46 @@ function InvitesTab({ data, onChange }: { data: WorkspaceDetail; onChange: () =>
           <p className="text-xs text-muted">No pending invites.</p>
         ) : (
           data.invites.map((inv) => (
-            <div key={inv.id} className="flex items-center gap-3 rounded-lg border border-border p-3 text-sm">
-              <div className="min-w-0">
-                <div className="truncate font-medium">{inv.email}</div>
-                <div className="text-xs text-muted">
-                  {inv.permissions.length === 0 ? 'Viewer' : `${inv.permissions.length} permissions`} · expires{' '}
-                  {new Date(inv.expiresAt).toLocaleDateString()}
+            <div key={inv.id} className="rounded-lg border border-border p-3 text-sm">
+              <div className="flex items-center gap-3">
+                <div className="min-w-0">
+                  <div className="truncate font-medium">{inv.email}</div>
+                  <div className="text-xs text-muted">
+                    {inv.permissions.length === 0 ? 'Viewer' : `${inv.permissions.length} permissions`} · expires{' '}
+                    {new Date(inv.expiresAt).toLocaleDateString()}
+                  </div>
                 </div>
+                {canInvite && (
+                  <div className="ml-auto flex gap-2">
+                    <button
+                      className="btn btn-sm"
+                      onClick={async () => {
+                        const r = await resendInviteApi(data.workspace.id, inv.id);
+                        setResent({ id: inv.id, link: r.link, emailed: r.emailed });
+                      }}
+                    >
+                      Resend
+                    </button>
+                    <button
+                      className="btn btn-sm"
+                      onClick={async () => {
+                        await revokeInviteApi(data.workspace.id, inv.id);
+                        onChange();
+                      }}
+                    >
+                      Revoke
+                    </button>
+                  </div>
+                )}
               </div>
-              {canInvite && (
-                <button
-                  className="btn btn-sm ml-auto"
-                  onClick={async () => {
-                    await revokeInviteApi(data.workspace.id, inv.id);
-                    onChange();
-                  }}
-                >
-                  Revoke
-                </button>
+              {resent?.id === inv.id && (
+                <div className="mt-2 rounded-md bg-surface-muted p-2 text-xs">
+                  <span className="font-medium">{resent.emailed ? 'Re-sent by email ✓ ' : 'New link (email off): '}</span>
+                  <code className="break-all">{resent.link}</code>
+                  <button className="btn btn-sm ml-2" onClick={() => navigator.clipboard?.writeText(resent.link)}>
+                    Copy
+                  </button>
+                </div>
               )}
             </div>
           ))
@@ -424,6 +459,8 @@ function SettingsTab({ data }: { data: WorkspaceDetail }) {
   const [name, setName] = useState(data.workspace.name);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [xferId, setXferId] = useState('');
+  const others = data.members.filter((m) => !m.isOwner && m.status === 'active');
 
   return (
     <div className="flex flex-col gap-6">
@@ -450,6 +487,42 @@ function SettingsTab({ data }: { data: WorkspaceDetail }) {
             </button>
           </div>
           {msg && <p className="mt-1 text-xs text-muted">{msg}</p>}
+        </div>
+      )}
+
+      {me.isOwner && others.length > 0 && (
+        <div>
+          <p className="mb-2 text-sm font-semibold">Transfer ownership</p>
+          <p className="mb-2 text-xs text-muted">
+            Hand the workspace to another member. You’ll become an Admin; they take over billing and deletion.
+          </p>
+          <div className="flex max-w-md gap-2">
+            <select className="select" value={xferId} onChange={(e) => setXferId(e.target.value)}>
+              <option value="">Choose a member…</option>
+              {others.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.displayName} ({m.email})
+                </option>
+              ))}
+            </select>
+            <button
+              className="btn shrink-0"
+              disabled={!xferId || busy}
+              onClick={async () => {
+                const target = others.find((m) => m.id === xferId);
+                if (!target || !confirm(`Transfer ownership to ${target.displayName}? You can't undo this yourself.`)) return;
+                setBusy(true);
+                try {
+                  await transferOwnershipApi(data.workspace.id, xferId);
+                  window.location.reload();
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              Transfer
+            </button>
+          </div>
         </div>
       )}
 
